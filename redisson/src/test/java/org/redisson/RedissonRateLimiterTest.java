@@ -21,10 +21,10 @@ public class RedissonRateLimiterTest extends RedisDockerTest {
         RRateLimiter limiter = redisson.getRateLimiter("testKeepAliveTime");
         limiter.delete();
         limiter.trySetRate(RateType.OVERALL, 1, Duration.ofSeconds(1), Duration.ofSeconds(1));
-        Thread.sleep(Duration.ofMillis(1100));
+        Thread.sleep(Duration.ofMillis(1100).toMillis());
         assertThat(limiter.isExists()).isFalse();
         limiter.trySetRate(RateType.OVERALL, 10, Duration.ofSeconds(2), Duration.ofSeconds(2));
-        Thread.sleep(Duration.ofSeconds(1));
+        Thread.sleep(Duration.ofSeconds(1).toMillis());
         assertThat(limiter.tryAcquire()).isTrue();
         assertThat(limiter.remainTimeToLive()).isGreaterThan(1500);
 

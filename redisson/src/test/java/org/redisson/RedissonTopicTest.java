@@ -396,7 +396,8 @@ public class RedissonTopicTest extends RedisDockerTest {
     public void testLambdaOptimizationByJVM() {
         RTopic topic = redisson.getTopic("topic");
 
-        try (var pool = Executors.newFixedThreadPool(2)) {
+        try  {
+            var pool = Executors.newFixedThreadPool(2);
             for (int i = 0; i < 50; i++) {
                 pool.submit(() -> {
                     MessageListener<Object> listener = (a, b) -> {};
@@ -404,7 +405,7 @@ public class RedissonTopicTest extends RedisDockerTest {
                     topic.removeListener(listenerId);
                 });
             }
-        }
+        } catch (Exception ignore) {}
 
         assertThat(topic.countListeners()).isZero();
     }

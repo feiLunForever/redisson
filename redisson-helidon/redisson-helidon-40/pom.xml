@@ -14,8 +14,8 @@
     <name>Redisson/Helidon integration</name>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
         <main.basedir>${project.parent.parent.basedir}</main.basedir>
     </properties>
 

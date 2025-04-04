@@ -108,7 +108,7 @@ public class RedissonFasterMultiLockTest extends BaseConcurrentTest {
         RedissonObject redissonObject = (RedissonObject) (lock);
         long fieldExpireTime1 = Long.valueOf(mapCache.get(hashValue(redissonObject, field1) + ":" + lockName + ":expire_time"));
         long fieldExpireTime2 = Long.valueOf(mapCache.get(hashValue(redissonObject, field2) + ":" + lockName + ":expire_time"));
-        Thread.sleep(Duration.ofSeconds(17));
+        Thread.sleep(Duration.ofSeconds(17).toMillis());
         long fieldExpireTime11 = Long.valueOf(mapCache.get(hashValue(redissonObject, field1) + ":" + lockName + ":expire_time"));
         long fieldExpireTime22 = Long.valueOf(mapCache.get(hashValue(redissonObject, field2) + ":" + lockName + ":expire_time"));
 

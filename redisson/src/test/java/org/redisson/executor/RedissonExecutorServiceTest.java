@@ -745,13 +745,13 @@ public class RedissonExecutorServiceTest extends RedisDockerTest {
         redissonES.registerWorkers(WorkerOptions.defaults().workers(2));
 
         redissonES.submit(new RunnableTask());
-        Thread.sleep(Duration.ofSeconds(1));
+        Thread.sleep(Duration.ofSeconds(1).toMillis());
         assertThat(redissonES.getTaskCount()).isEqualTo(0);
 
-        Thread.sleep(Duration.ofMinutes(1));
+        Thread.sleep(Duration.ofMinutes(1).toMillis());
 
         redissonES.submit(new RunnableTask());
-        Thread.sleep(Duration.ofSeconds(1));
+        Thread.sleep(Duration.ofSeconds(1).toMillis());
         assertThat(redissonES.getTaskCount()).isEqualTo(0);
     }
 
