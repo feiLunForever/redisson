@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -79,7 +79,8 @@ public interface RTimeSeriesReactive<V, L> extends RExpirableReactive {
     Mono<Void> addAll(Collection<TimeSeriesEntry<V, L>> entries);
 
     /**
-     * Use {@link #add(long, Object, Duration)} instead
+     * Adds element to this time-series collection
+     * by specified <code>timestamp</code>.
      *
      * @param timestamp - object timestamp
      * @param object - object itself
@@ -87,18 +88,7 @@ public interface RTimeSeriesReactive<V, L> extends RExpirableReactive {
      * @param timeUnit - unit of time to live interval
      * @return void
      */
-    @Deprecated
     Mono<Void> add(long timestamp, V object, long timeToLive, TimeUnit timeUnit);
-
-    /**
-     * Adds element to this time-series collection
-     * by specified <code>timestamp</code>.
-     *
-     * @param timestamp object timestamp
-     * @param object object itself
-     * @param timeToLive time to live interval
-     */
-    Mono<Void> add(long timestamp, V object, Duration timeToLive);
 
     /**
      * Adds element with <code>label</code> to this time-series collection
@@ -113,24 +103,15 @@ public interface RTimeSeriesReactive<V, L> extends RExpirableReactive {
     Mono<Void> add(long timestamp, V object, L label, Duration timeToLive);
 
     /**
-     * Use {@link #addAll(Map, Duration)} instead
+     * Adds all elements contained in the specified map to this time-series collection.
+     * Map contains of timestamp mapped by object.
      *
      * @param objects - map of elements to add
      * @param timeToLive - time to live interval
      * @param timeUnit - unit of time to live interval
      * @return void
      */
-    @Deprecated
     Mono<Void> addAll(Map<Long, V> objects, long timeToLive, TimeUnit timeUnit);
-
-    /**
-     * Adds all elements contained in the specified map to this time-series collection.
-     * Map contains of timestamp mapped by object.
-     *
-     * @param objects map of elements to add
-     * @param timeToLive time to live interval
-     */
-    Mono<Void> addAll(Map<Long, V> objects, Duration timeToLive);
 
     /**
      * Adds all time series entries collection to this time-series collection.
@@ -410,21 +391,5 @@ public interface RTimeSeriesReactive<V, L> extends RExpirableReactive {
      * @return elements collection
      */
     Mono<Collection<TimeSeriesEntry<V, L>>> entryRangeReversed(long startTimestamp, long endTimestamp, int limit);
-
-    /**
-     * Adds object event listener
-     *
-     * @see org.redisson.api.listener.TrackingListener
-     * @see org.redisson.api.listener.ScoredSortedSetAddListener
-     * @see org.redisson.api.listener.ScoredSortedSetRemoveListener
-     * @see org.redisson.api.ExpiredObjectListener
-     * @see org.redisson.api.DeletedObjectListener
-     *
-     * @param listener - object event listener
-     * @return listener id
-     */
-    @Override
-    Mono<Integer> addListener(ObjectListener listener);
-
 
 }

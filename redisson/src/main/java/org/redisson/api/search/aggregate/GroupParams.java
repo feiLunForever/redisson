@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 package org.redisson.api.search.aggregate;
 
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -27,7 +26,7 @@ import java.util.List;
 public final class GroupParams implements GroupBy {
 
     private List<String> fieldNames;
-    private List<Reducer> reducers = Collections.emptyList();
+    private List<Reducer> reducers;
 
     GroupParams(List<String> fieldNames) {
         this.fieldNames = fieldNames;

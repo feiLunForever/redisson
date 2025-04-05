@@ -10,7 +10,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.netty.channel.nio.NioEventLoopGroup;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.redisson.RedisRunner.RedisProcess;
 import org.redisson.api.RLock;
@@ -20,8 +19,6 @@ import org.redisson.config.Config;
 import static org.awaitility.Awaitility.await;
 import static org.assertj.core.api.Assertions.assertThat;
 
-@Disabled
-@Deprecated
 public class RedissonRedLockTest {
 
     @Test
@@ -42,10 +39,10 @@ public class RedissonRedLockTest {
     private void testLockLeasetime(final long leaseTime, final TimeUnit unit) throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
         RedisProcess redis2 = redisTestMultilockInstance();
-        
+
         RedissonClient client1 = createClient(redis1.getRedisServerAddressAndPort());
         RedissonClient client2 = createClient(redis2.getRedisServerAddressAndPort());
-        
+
         RLock lock1 = client1.getLock("lock1");
         RLock lock2 = client1.getLock("lock2");
         RLock lock3 = client2.getLock("lock3");
@@ -56,7 +53,7 @@ public class RedissonRedLockTest {
 
 
         RedissonRedLock lock = new RedissonRedLock(lock1, lock2, lock3, lock4, lock5, lock6, lock7);
-        
+
         ExecutorService executor = Executors.newFixedThreadPool(10);
         AtomicInteger counter = new AtomicInteger();
         for (int i = 0; i < 10; i++) {
@@ -74,32 +71,32 @@ public class RedissonRedLockTest {
                 }
             });
         }
-        
+
         executor.shutdown();
         assertThat(executor.awaitTermination(2, TimeUnit.MINUTES)).isTrue();
         assertThat(counter.get()).isEqualTo(50);
-        
+
         client1.shutdown();
         client2.shutdown();
-        
+
         assertThat(redis1.stop()).isEqualTo(0);
         assertThat(redis2.stop()).isEqualTo(0);
     }
-    
+
     @Test
     public void testTryLockLeasetime() throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
         RedisProcess redis2 = redisTestMultilockInstance();
-        
+
         RedissonClient client1 = createClient(redis1.getRedisServerAddressAndPort());
         RedissonClient client2 = createClient(redis2.getRedisServerAddressAndPort());
-        
+
         RLock lock1 = client1.getLock("lock1");
         RLock lock2 = client1.getLock("lock2");
         RLock lock3 = client2.getLock("lock3");
 
         RedissonRedLock lock = new RedissonRedLock(lock1, lock2, lock3);
-        
+
         ExecutorService executor = Executors.newFixedThreadPool(10);
         AtomicInteger counter = new AtomicInteger();
         for (int i = 0; i < 10; i++) {
@@ -120,55 +117,59 @@ public class RedissonRedLockTest {
                 }
             });
         }
-        
+
         executor.shutdown();
         assertThat(executor.awaitTermination(2, TimeUnit.MINUTES)).isTrue();
         assertThat(counter.get()).isEqualTo(50);
-        
+
         client1.shutdown();
         client2.shutdown();
-        
+
         assertThat(redis1.stop()).isEqualTo(0);
         assertThat(redis2.stop()).isEqualTo(0);
     }
 
-    
+
     @Test
     public void testLockFailed() throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
         RedisProcess redis2 = redisTestMultilockInstance();
-        
+
         RedissonClient client1 = createClient(redis1.getRedisServerAddressAndPort());
         RedissonClient client2 = createClient(redis2.getRedisServerAddressAndPort());
-        
+
         RLock lock1 = client1.getLock("lock1");
         RLock lock2 = client1.getLock("lock2");
         RLock lock3 = client2.getLock("lock3");
-        
+
         Thread t1 = new Thread() {
             public void run() {
                 lock2.lock();
                 lock3.lock();
-            };
+            }
+
+            ;
         };
         t1.start();
         t1.join();
-        
+
         Thread t = new Thread() {
             public void run() {
                 RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
                 lock.lock();
-            };
+            }
+
+            ;
         };
         t.start();
         t.join(1000);
 
         RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
         Assertions.assertFalse(lock.tryLock());
-        
+
         client1.shutdown();
         client2.shutdown();
-        
+
         assertThat(redis1.stop()).isEqualTo(0);
         assertThat(redis2.stop()).isEqualTo(0);
     }
@@ -184,48 +185,50 @@ public class RedissonRedLockTest {
         RLock lock1 = client1.getLock("lock1");
         RLock lock2 = client1.getLock("lock2");
         RLock lock3 = client2.getLock("lock3");
-        
+
         Thread t1 = new Thread() {
             public void run() {
                 lock2.lock();
-            };
+            }
+
+            ;
         };
         t1.start();
         t1.join();
-        
+
         RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
 
         assertThat(lock.tryLock(500, 5000, TimeUnit.MILLISECONDS)).isTrue();
         Thread.sleep(3000);
-        
+
         lock.unlock();
 
         client1.shutdown();
         client2.shutdown();
-        
+
         assertThat(redis1.stop()).isEqualTo(0);
-        assertThat(redis2.stop()).isEqualTo(0);        
+        assertThat(redis2.stop()).isEqualTo(0);
     }
-    
+
     @Test
     public void testLockSuccess() throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
         RedisProcess redis2 = redisTestMultilockInstance();
-        
+
         RedissonClient client1 = createClient(redis1.getRedisServerAddressAndPort());
         RedissonClient client2 = createClient(redis2.getRedisServerAddressAndPort());
-        
+
         RLock lock1 = client1.getLock("lock1");
         RLock lock2 = client1.getLock("lock2");
         RLock lock3 = client2.getLock("lock3");
-        
+
         testLock(lock1, lock2, lock3, lock1);
         testLock(lock1, lock2, lock3, lock2);
         testLock(lock1, lock2, lock3, lock3);
-        
+
         client1.shutdown();
         client2.shutdown();
-        
+
         assertThat(redis1.stop()).isEqualTo(0);
         assertThat(redis2.stop()).isEqualTo(0);
     }
@@ -234,59 +237,65 @@ public class RedissonRedLockTest {
         Thread t1 = new Thread() {
             public void run() {
                 lockFirst.lock();
-            };
+            }
+
+            ;
         };
         t1.start();
         t1.join();
-        
+
         Thread t = new Thread() {
             public void run() {
                 RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
                 lock.lock();
-                
+
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException e) {
                 }
                 lock.unlock();
-            };
+            }
+
+            ;
         };
         t.start();
         t.join(1000);
 
         lockFirst.forceUnlock();
-        
+
         RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
         lock.lock();
         lock.unlock();
     }
 
-    
+
     @Test
     public void testConnectionFailed() throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
         RedisProcess redis2 = redisTestMultilockInstance();
-        
+
         RedissonClient client1 = createClient(redis1.getRedisServerAddressAndPort());
         RedissonClient client2 = createClient(redis2.getRedisServerAddressAndPort());
-        
+
         RLock lock1 = client1.getLock("lock1");
         RLock lock2 = client1.getLock("lock2");
         assertThat(redis2.stop()).isEqualTo(0);
         RLock lock3 = client2.getLock("lock3");
-        
+
         Thread t = new Thread() {
             public void run() {
                 RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
                 lock.lock();
-                
+
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException e) {
                 }
-                
+
                 lock.unlock();
-            };
+            }
+
+            ;
         };
         t.start();
         t.join(1000);
@@ -294,38 +303,40 @@ public class RedissonRedLockTest {
         RedissonMultiLock lock = new RedissonRedLock(lock1, lock2, lock3);
         lock.lock();
         lock.unlock();
-        
+
         client1.shutdown();
         client2.shutdown();
-        
+
         assertThat(redis1.stop()).isEqualTo(0);
     }
 
-    
-//    @Test
+
+    //    @Test
     public void testMultiThreads() throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
-        
+
         Config config1 = new Config();
         config1.useSingleServer().setAddress(redis1.getRedisServerAddressAndPort());
         RedissonClient client = Redisson.create(config1);
-        
+
         RLock lock1 = client.getLock("lock1");
         RLock lock2 = client.getLock("lock2");
         RLock lock3 = client.getLock("lock3");
-        
+
         Thread t = new Thread() {
             public void run() {
                 RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
                 lock.lock();
-                
+
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException e) {
                 }
-                
+
                 lock.unlock();
-            };
+            }
+
+            ;
         };
         t.start();
         t.join(1000);
@@ -333,19 +344,19 @@ public class RedissonRedLockTest {
         RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
         lock.lock();
         lock.unlock();
-        
+
         client.shutdown();
         assertThat(redis1.stop()).isEqualTo(0);
     }
-    
-//    @Test
+
+    //    @Test
     public void test() throws IOException, InterruptedException {
         RedisProcess redis1 = redisTestMultilockInstance();
         RedisProcess redis2 = redisTestMultilockInstance();
         RedisProcess redis3 = redisTestMultilockInstance();
 
         NioEventLoopGroup group = new NioEventLoopGroup();
-        
+
         RedissonClient client1 = createClient(group, redis1.getRedisServerAddressAndPort());
         RedissonClient client2 = createClient(group, redis2.getRedisServerAddressAndPort());
         RedissonClient client3 = createClient(group, redis3.getRedisServerAddressAndPort());
@@ -394,7 +405,7 @@ public class RedissonRedLockTest {
         client1.getKeys().flushdb();
         return client1;
     }
-    
+
     private RedisProcess redisTestMultilockInstance() throws IOException, InterruptedException {
         return new RedisRunner()
                 .nosave()
@@ -402,5 +413,18 @@ public class RedissonRedLockTest {
                 .randomPort()
                 .run();
     }
-    
+
+    @Test
+    public void redLockTest() {
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
+        RedissonClient redissonClient = Redisson.create(config);
+        RLock lock1 = redissonClient.getLock("lock1");
+        RLock lock2 = redissonClient.getLock("lock2");
+        RLock lock3 = redissonClient.getLock("lock3");
+        RedissonRedLock redLock = new RedissonRedLock(lock1, lock2, lock3);
+        boolean b = redLock.tryLock();
+        redLock.unlock();
+    }
+
 }

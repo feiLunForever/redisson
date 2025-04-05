@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -195,9 +195,7 @@ public interface RSearch extends RSearchAsync {
     void dropIndex(String indexName);
 
     /**
-     * Deletes index by name and associated documents.
-     * Associated documents are deleted asynchronously.
-     * Method {@link #info(String)} can be used to check for process completion.
+     * Deletes index by name and associated documents
      *
      * @param indexName index name
      */
@@ -213,8 +211,6 @@ public interface RSearch extends RSearchAsync {
 
     /**
      * Executes spell checking by defined index name and query.
-     * Returns a map of misspelled terms and their score.
-     *
      * <pre>
      * Map<String, Map<String, Double>> res = s.spellcheck("idx", "Hocke sti", SpellcheckOptions.defaults()
      *                                                                                          .includedTerms("name"));
@@ -223,7 +219,7 @@ public interface RSearch extends RSearchAsync {
      * @param indexName index name
      * @param query query
      * @param options spell checking options
-     * @return map of misspelled terms and their score
+     * @return result
      */
     Map<String, Map<String, Double>> spellcheck(String indexName, String query, SpellcheckOptions options);
 
@@ -243,12 +239,5 @@ public interface RSearch extends RSearchAsync {
      * @param terms terms
      */
     void updateSynonyms(String indexName, String synonymGroupId, String... terms);
-
-    /**
-     * Returns list of all created indexes
-     *
-     * @return list of indexes
-     */
-    List<String> getIndexes();
 
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import org.redisson.connection.ServiceManager;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -41,7 +42,32 @@ public class ProxyBuilder {
 
     }
 
-    private static final ConcurrentMap<Tuple<Method, Class<?>>, Method> METHODS_MAPPING = new ConcurrentHashMap<>();
+    private static class CacheKey {
+
+        final Method method;
+        final Class<?> instanceClass;
+
+        CacheKey(Method method, Class<?> instanceClass) {
+            super();
+            this.method = method;
+            this.instanceClass = instanceClass;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            CacheKey cacheKey = (CacheKey) o;
+            return method.equals(cacheKey.method) && instanceClass.equals(cacheKey.instanceClass);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(method, instanceClass);
+        }
+    }
+
+    private static final ConcurrentMap<CacheKey, Method> METHODS_MAPPING = new ConcurrentHashMap<CacheKey, Method>();
 
     public static <T> T create(Callback commandExecutor, Object instance, Object implementation, Class<T> clazz, ServiceManager serviceManager) {
         InvocationHandler handler = new InvocationHandler() {
@@ -66,7 +92,7 @@ public class ProxyBuilder {
     }
 
     private static Method getMethod(Method method, Object instance, Object implementation) throws NoSuchMethodException {
-        Tuple<Method, Class<?>> key = new Tuple<>(method, instance.getClass());
+        CacheKey key = new CacheKey(method, instance.getClass());
         Method instanceMethod = METHODS_MAPPING.get(key);
         if (instanceMethod == null) {
             if (implementation != null) {

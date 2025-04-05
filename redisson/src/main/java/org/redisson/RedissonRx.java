@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,22 +15,20 @@
  */
 package org.redisson;
 
-import org.redisson.api.LocalCachedMapOptions;
-import org.redisson.api.MapCacheOptions;
-import org.redisson.api.MapOptions;
 import org.redisson.api.*;
-import org.redisson.api.options.*;
 import org.redisson.client.codec.Codec;
 import org.redisson.codec.JsonCodec;
 import org.redisson.config.Config;
+import org.redisson.config.ConfigSupport;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.eviction.EvictionScheduler;
 import org.redisson.liveobject.core.RedissonObjectBuilder;
+import org.redisson.remote.ResponseEntry;
 import org.redisson.rx.*;
 
-import java.time.Duration;
 import java.util.Arrays;
-import java.util.Collection;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Main infrastructure class allows to get access
@@ -39,22 +37,39 @@ import java.util.Collection;
  * @author Nikita Koksharov
  *
  */
-public final class RedissonRx implements RedissonRxClient {
+public class RedissonRx implements RedissonRxClient {
 
-    private final WriteBehindService writeBehindService;
-    private final EvictionScheduler evictionScheduler;
-    private final CommandRxExecutor commandExecutor;
-    private final ConnectionManager connectionManager;
+    protected final WriteBehindService writeBehindService;
+    protected final EvictionScheduler evictionScheduler;
+    protected final CommandRxExecutor commandExecutor;
+    protected final ConnectionManager connectionManager;
+    protected final ConcurrentMap<String, ResponseEntry> responses;
+    
+    protected RedissonRx(Config config) {
+        Config configCopy = new Config(config);
 
-    RedissonRx(ConnectionManager connectionManager, EvictionScheduler evictionScheduler, WriteBehindService writeBehindService) {
+        connectionManager = ConfigSupport.createConnectionManager(configCopy);
+        RedissonObjectBuilder objectBuilder = null;
+        if (connectionManager.getServiceManager().getCfg().isReferenceEnabled()) {
+            objectBuilder = new RedissonObjectBuilder(this);
+        }
+        commandExecutor = new CommandRxService(connectionManager, objectBuilder);
+        evictionScheduler = new EvictionScheduler(commandExecutor);
+        writeBehindService = new WriteBehindService(commandExecutor);
+        responses = new ConcurrentHashMap<>();
+    }
+
+    protected RedissonRx(ConnectionManager connectionManager, EvictionScheduler evictionScheduler,
+                         WriteBehindService writeBehindService, ConcurrentMap<String, ResponseEntry> responses) {
         this.connectionManager = connectionManager;
         RedissonObjectBuilder objectBuilder = null;
         if (connectionManager.getServiceManager().getCfg().isReferenceEnabled()) {
             objectBuilder = new RedissonObjectBuilder(this);
         }
-        commandExecutor = CommandRxExecutor.create(connectionManager, objectBuilder);
+        commandExecutor = new CommandRxService(connectionManager, objectBuilder);
         this.evictionScheduler = evictionScheduler;
         this.writeBehindService = writeBehindService;
+        this.responses = responses;
     }
 
     public CommandRxExecutor getCommandExecutor() {
@@ -72,28 +87,13 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <K, V> RStreamRx<K, V> getStream(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonStream<K, V>(params.getCodec(), commandExecutor.copy(params), params.getName()), RStreamRx.class);
-    }
-
-    @Override
     public RSearchRx getSearch() {
-        return getSearch((Codec) null);
+        return getSearch(null);
     }
 
     @Override
     public RSearchRx getSearch(Codec codec) {
         return RxProxyBuilder.create(commandExecutor, new RedissonSearch(codec, commandExecutor), RSearchRx.class);
-    }
-
-    @Override
-    public RSearchRx getSearch(OptionalOptions options) {
-        OptionalParams params = (OptionalParams) options;
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonSearch(params.getCodec(), commandExecutor.copy(params)), RSearchRx.class);
     }
 
     @Override
@@ -109,40 +109,17 @@ public final class RedissonRx implements RedissonRxClient {
         return RxProxyBuilder.create(commandExecutor, new RedissonGeo<V>(codec, commandExecutor, name, null), 
                 new RedissonScoredSortedSetRx<V>(set), RGeoRx.class);
     }
-
-    @Override
-    public <V> RGeoRx<V> getGeo(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonScoredSortedSet<V> set = new RedissonScoredSortedSet<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, new RedissonGeo<V>(params.getCodec(), ce, params.getName(), null),
-                new RedissonScoredSortedSetRx<V>(set), RGeoRx.class);
-    }
-
+    
     @Override
     public RLockRx getFairLock(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonFairLock(commandExecutor, name), RLockRx.class);
     }
-
-    @Override
-    public RLockRx getFairLock(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        return RxProxyBuilder.create(commandExecutor,
-                            new RedissonFairLock(commandExecutor.copy(params), params.getName()), RLockRx.class);
-    }
-
+    
     @Override
     public RRateLimiterRx getRateLimiter(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonRateLimiter(commandExecutor, name), RRateLimiterRx.class);
     }
-
-    @Override
-    public RRateLimiterRx getRateLimiter(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonRateLimiter(commandExecutor.copy(params), params.getName()), RRateLimiterRx.class);
-    }
-
+    
     @Override
     public RBinaryStreamRx getBinaryStream(String name) {
         RedissonBinaryStream stream = new RedissonBinaryStream(commandExecutor, name);
@@ -151,24 +128,8 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RBinaryStreamRx getBinaryStream(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonBinaryStream stream = new RedissonBinaryStream(ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, stream,
-                new RedissonBinaryStreamRx(ce, stream), RBinaryStreamRx.class);
-    }
-
-    @Override
     public RSemaphoreRx getSemaphore(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonSemaphore(commandExecutor, name), RSemaphoreRx.class);
-    }
-
-    @Override
-    public RSemaphoreRx getSemaphore(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonSemaphore(ce, params.getName()), RSemaphoreRx.class);
     }
 
     @Override
@@ -177,35 +138,13 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RPermitExpirableSemaphoreRx getPermitExpirableSemaphore(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonPermitExpirableSemaphore(ce, params.getName()), RPermitExpirableSemaphoreRx.class);
-    }
-
-    @Override
     public RReadWriteLockRx getReadWriteLock(String name) {
         return new RedissonReadWriteLockRx(commandExecutor, name);
     }
 
     @Override
-    public RReadWriteLockRx getReadWriteLock(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return new RedissonReadWriteLockRx(ce, params.getName());
-    }
-
-    @Override
     public RLockRx getLock(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonLock(commandExecutor, name), RLockRx.class);
-    }
-
-    @Override
-    public RLockRx getLock(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonLock(ce, params.getName()), RLockRx.class);
     }
 
     @Override
@@ -226,24 +165,11 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RFencedLockRx getFencedLock(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonFencedLock lock = new RedissonFencedLock(ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, lock, RFencedLockRx.class);
-    }
-
-    @Override
     public RLockRx getMultiLock(RLockRx... locks) {
         RLock[] ls = Arrays.stream(locks)
                             .map(l -> new RedissonLock(commandExecutor, l.getName()))
                             .toArray(RLock[]::new);
         return RxProxyBuilder.create(commandExecutor, new RedissonMultiLock(ls), RLockRx.class);
-    }
-
-    @Override
-    public RLockRx getMultiLock(String group, Collection<Object> values) {
-        return RxProxyBuilder.create(commandExecutor, new RedissonFasterMultiLock(commandExecutor, group, values), RLockRx.class);
     }
 
     @Override
@@ -262,13 +188,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RCountDownLatchRx getCountDownLatch(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonCountDownLatch(ce, params.getName()), RCountDownLatchRx.class);
-    }
-
-    @Override
     public <K, V> RMapCacheRx<K, V> getMapCache(String name, Codec codec) {
         RMap<K, V> map = new RedissonMapCache<K, V>(codec, evictionScheduler, commandExecutor, name, null, null, null);
         return RxProxyBuilder.create(commandExecutor, map, 
@@ -283,36 +202,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <K, V> RMapCacheRx<K, V> getMapCache(org.redisson.api.options.MapCacheOptions<K, V> options) {
-        MapCacheParams<K, V> params = (MapCacheParams<K, V>) options;
-        MapCacheOptions<K, V> ops = MapCacheOptions.<K, V>defaults()
-                .loader(params.getLoader())
-                .loaderAsync(params.getLoaderAsync())
-                .writer(params.getWriter())
-                .writerAsync(params.getWriterAsync())
-                .writeBehindDelay(params.getWriteBehindDelay())
-                .writeBehindBatchSize(params.getWriteBehindBatchSize())
-                .writerRetryInterval(Duration.ofMillis(params.getWriteRetryInterval()));
-
-        if (params.isRemoveEmptyEvictionTask()) {
-            ops.removeEmptyEvictionTask();
-        }
-
-        if (params.getWriteMode() != null) {
-            ops.writeMode(MapOptions.WriteMode.valueOf(params.getWriteMode().toString()));
-        }
-        if (params.getWriteRetryAttempts() > 0) {
-            ops.writerRetryAttempts(params.getWriteRetryAttempts());
-        }
-
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonMapCache<K, V> map = new RedissonMapCache<>(params.getCodec(), evictionScheduler,
-                ce, params.getName(), null, ops, writeBehindService);
-        return RxProxyBuilder.create(commandExecutor, map,
-                new RedissonMapCacheRx<K, V>(map, ce), RMapCacheRx.class);
-    }
-
-    @Override
     public <V> RBucketRx<V> getBucket(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonBucket<V>(commandExecutor, name), RBucketRx.class);
     }
@@ -320,14 +209,6 @@ public final class RedissonRx implements RedissonRxClient {
     @Override
     public <V> RBucketRx<V> getBucket(String name, Codec codec) {
         return RxProxyBuilder.create(commandExecutor, new RedissonBucket<V>(codec, commandExecutor, name), RBucketRx.class);
-    }
-
-    @Override
-    public <V> RBucketRx<V> getBucket(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonBucket<V>(params.getCodec(), ce, params.getName()), RBucketRx.class);
     }
 
     @Override
@@ -341,29 +222,10 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RBucketsRx getBuckets(OptionalOptions options) {
-        OptionalParams params = (OptionalParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonBuckets(params.getCodec(), ce), RBucketsRx.class);
-    }
-
-    @Override
-    public <V> RJsonBucketRx<V> getJsonBucket(String name, JsonCodec codec) {
+    public <V> RJsonBucketRx<V> getJsonBucket(String name, JsonCodec<V> codec) {
         return RxProxyBuilder.create(commandExecutor, new RedissonJsonBucket<>(codec, commandExecutor, name), RJsonBucketRx.class);
     }
 
-    @Override
-    public <V> RJsonBucketRx<V> getJsonBucket(JsonBucketOptions<V> options) {
-        JsonBucketParams<V> params = (JsonBucketParams<V>) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonJsonBucket<>(params.getCodec(), ce, params.getName()), RJsonBucketRx.class);
-    }
-    
-    @Override
-    public RJsonBucketsRx getJsonBuckets(JsonCodec codec) {
-        return RxProxyBuilder.create(commandExecutor, new RedissonJsonBuckets(codec, commandExecutor), RJsonBucketsRx.class);
-    }
-    
     @Override
     public <V> RHyperLogLogRx<V> getHyperLogLog(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonHyperLogLog<V>(commandExecutor, name), RHyperLogLogRx.class);
@@ -375,22 +237,8 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <V> RHyperLogLogRx<V> getHyperLogLog(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonHyperLogLog<V>(params.getCodec(), ce, params.getName()), RHyperLogLogRx.class);
-    }
-
-    @Override
     public RIdGeneratorRx getIdGenerator(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonIdGenerator(commandExecutor, name), RIdGeneratorRx.class);
-    }
-
-    @Override
-    public RIdGeneratorRx getIdGenerator(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonIdGenerator(ce, params.getName()), RIdGeneratorRx.class);
     }
 
     @Override
@@ -404,15 +252,6 @@ public final class RedissonRx implements RedissonRxClient {
     public <V> RListRx<V> getList(String name, Codec codec) {
         RedissonList<V> list = new RedissonList<V>(codec, commandExecutor, name, null);
         return RxProxyBuilder.create(commandExecutor, list, 
-                new RedissonListRx<V>(list), RListRx.class);
-    }
-
-    @Override
-    public <V> RListRx<V> getList(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonList<V> list = new RedissonList<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, list,
                 new RedissonListRx<V>(list), RListRx.class);
     }
 
@@ -431,58 +270,17 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <K, V> RListMultimapRx<K, V> getListMultimap(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonListMultimap<K, V> listMultimap = new RedissonListMultimap<>(params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, commandExecutor), RListMultimapRx.class);
-    }
-
-    @Override
     public <K, V> RListMultimapCacheRx<K, V> getListMultimapCache(String name) {
         RedissonListMultimapCache<K, V> listMultimap = new RedissonListMultimapCache<>(evictionScheduler, commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, commandExecutor), RListMultimapCacheRx.class);
+                new RedissonListMultimapCacheRx<K, V>(listMultimap, commandExecutor), RListMultimapCacheRx.class);
     }
 
     @Override
     public <K, V> RListMultimapCacheRx<K, V> getListMultimapCache(String name, Codec codec) {
         RedissonListMultimapCache<K, V> listMultimap = new RedissonListMultimapCache<>(evictionScheduler, codec, commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, commandExecutor), RListMultimapCacheRx.class);
-    }
-
-    @Override
-    public <K, V> RListMultimapCacheRx<K, V> getListMultimapCache(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonListMultimapCache<K, V> listMultimap = new RedissonListMultimapCache<>(evictionScheduler, params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, ce), RListMultimapCacheRx.class);
-    }
-
-    @Override
-    public <K, V> RListMultimapCacheNativeRx<K, V> getListMultimapCacheNative(String name) {
-        RedissonListMultimapCacheNative<K, V> listMultimap = new RedissonListMultimapCacheNative<>(commandExecutor, name);
-        return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, commandExecutor), RListMultimapCacheNativeRx.class);
-    }
-
-    @Override
-    public <K, V> RListMultimapCacheNativeRx<K, V> getListMultimapCacheNative(String name, Codec codec) {
-        RedissonListMultimapCacheNative<K, V> listMultimap = new RedissonListMultimapCacheNative<>(codec, commandExecutor, name);
-        return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, commandExecutor), RListMultimapCacheNativeRx.class);
-    }
-
-    @Override
-    public <K, V> RListMultimapCacheNativeRx<K, V> getListMultimapCacheNative(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonListMultimapCacheNative<K, V> listMultimap = new RedissonListMultimapCacheNative<>(params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, listMultimap,
-                new RedissonListMultimapRx<K, V>(listMultimap, ce), RListMultimapCacheNativeRx.class);
+                new RedissonListMultimapCacheRx<K, V>(listMultimap, commandExecutor), RListMultimapCacheRx.class);
     }
 
     @Override
@@ -500,58 +298,17 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <K, V> RSetMultimapRx<K, V> getSetMultimap(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonSetMultimap<K, V> setMultimap = new RedissonSetMultimap<>(params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<>(setMultimap, ce, this), RSetMultimapRx.class);
-    }
-
-    @Override
     public <K, V> RSetMultimapCacheRx<K, V> getSetMultimapCache(String name) {
         RedissonSetMultimapCache<K, V> setMultimap = new RedissonSetMultimapCache<>(evictionScheduler, commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<K, V>(setMultimap, commandExecutor, this), RSetMultimapCacheRx.class);
+                new RedissonSetMultimapCacheRx<K, V>(setMultimap, commandExecutor, this), RSetMultimapCacheRx.class);
     }
 
     @Override
     public <K, V> RSetMultimapCacheRx<K, V> getSetMultimapCache(String name, Codec codec) {
         RedissonSetMultimapCache<K, V> setMultimap = new RedissonSetMultimapCache<>(evictionScheduler, codec, commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<K, V>(setMultimap, commandExecutor, this), RSetMultimapCacheRx.class);
-    }
-
-    @Override
-    public <K, V> RSetMultimapCacheRx<K, V> getSetMultimapCache(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonSetMultimapCache<K, V> setMultimap = new RedissonSetMultimapCache<>(evictionScheduler, params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<>(setMultimap, ce, this), RSetMultimapCacheRx.class);
-    }
-
-    @Override
-    public <K, V> RSetMultimapCacheNativeRx<K, V> getSetMultimapCacheNative(String name) {
-        RedissonSetMultimapCacheNative<K, V> setMultimap = new RedissonSetMultimapCacheNative<>(commandExecutor, name);
-        return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<>(setMultimap, commandExecutor, this), RSetMultimapCacheNativeRx.class);
-    }
-
-    @Override
-    public <K, V> RSetMultimapCacheNativeRx<K, V> getSetMultimapCacheNative(String name, Codec codec) {
-        RedissonSetMultimapCacheNative<K, V> setMultimap = new RedissonSetMultimapCacheNative<>(codec, commandExecutor, name);
-        return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<>(setMultimap, commandExecutor, this), RSetMultimapCacheNativeRx.class);
-    }
-
-    @Override
-    public <K, V> RSetMultimapCacheNativeRx<K, V> getSetMultimapCacheNative(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonSetMultimapCacheNative<K, V> setMultimap = new RedissonSetMultimapCacheNative<>(params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, setMultimap,
-                new RedissonSetMultimapRx<>(setMultimap, ce, this), RSetMultimapCacheNativeRx.class);
+                new RedissonSetMultimapCacheRx<K, V>(setMultimap, commandExecutor, this), RSetMultimapCacheRx.class);
     }
 
     @Override
@@ -569,17 +326,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <K, V> RMapRx<K, V> getMap(org.redisson.api.options.MapOptions<K, V> options) {
-        MapParams<K, V> params = (MapParams<K, V>) options;
-        MapOptions<K, V> ops = createOptions(params);
-
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonMap<K, V> map = new RedissonMap<>(params.getCodec(), ce, params.getName(), null, ops, writeBehindService);
-        return RxProxyBuilder.create(commandExecutor, map,
-                new RedissonMapRx<>(map, ce), RMapRx.class);
-    }
-
-    @Override
     public <V> RSetRx<V> getSet(String name) {
         RedissonSet<V> set = new RedissonSet<V>(commandExecutor, name, null);
         return RxProxyBuilder.create(commandExecutor, set, 
@@ -590,15 +336,6 @@ public final class RedissonRx implements RedissonRxClient {
     public <V> RSetRx<V> getSet(String name, Codec codec) {
         RedissonSet<V> set = new RedissonSet<V>(codec, commandExecutor, name, null);
         return RxProxyBuilder.create(commandExecutor, set, 
-                new RedissonSetRx<V>(set, this), RSetRx.class);
-    }
-
-    @Override
-    public <V> RSetRx<V> getSet(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonSet<V> set = new RedissonSet<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, set,
                 new RedissonSetRx<V>(set, this), RSetRx.class);
     }
 
@@ -617,27 +354,9 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <V> RScoredSortedSetRx<V> getScoredSortedSet(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonScoredSortedSet<V> set = new RedissonScoredSortedSet<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, set,
-                new RedissonScoredSortedSetRx<>(set), RScoredSortedSetRx.class);
-    }
-
-    @Override
     public RLexSortedSetRx getLexSortedSet(String name) {
         RedissonLexSortedSet set = new RedissonLexSortedSet(commandExecutor, name, null);
         return RxProxyBuilder.create(commandExecutor, set, 
-                new RedissonLexSortedSetRx(set), RLexSortedSetRx.class);
-    }
-
-    @Override
-    public RLexSortedSetRx getLexSortedSet(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonLexSortedSet set = new RedissonLexSortedSet(ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, set,
                 new RedissonLexSortedSetRx(set), RLexSortedSetRx.class);
     }
 
@@ -654,14 +373,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RShardedTopicRx getShardedTopic(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RShardedTopic topic = new RedissonShardedTopic(params.getCodec(), ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, topic, new RedissonTopicRx(topic), RShardedTopicRx.class);
-    }
-
-    @Override
     public RTopicRx getTopic(String name) {
         RTopic topic = new RedissonTopic(commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, topic, new RedissonTopicRx(topic), RTopicRx.class);
@@ -670,14 +381,6 @@ public final class RedissonRx implements RedissonRxClient {
     @Override
     public RTopicRx getTopic(String name, Codec codec) {
         RTopic topic = new RedissonTopic(codec, commandExecutor, name);
-        return RxProxyBuilder.create(commandExecutor, topic, new RedissonTopicRx(topic), RTopicRx.class);
-    }
-
-    @Override
-    public RTopicRx getTopic(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RTopic topic = new RedissonTopic(params.getCodec(), ce, params.getName());
         return RxProxyBuilder.create(commandExecutor, topic, new RedissonTopicRx(topic), RTopicRx.class);
     }
 
@@ -692,14 +395,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RReliableTopicRx getReliableTopic(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonReliableTopic(params.getCodec(), ce, params.getName(), null), RReliableTopicRx.class);
-    }
-
-    @Override
     public RPatternTopicRx getPatternTopic(String pattern) {
         return RxProxyBuilder.create(commandExecutor, new RedissonPatternTopic(commandExecutor, pattern), RPatternTopicRx.class);
     }
@@ -707,13 +402,6 @@ public final class RedissonRx implements RedissonRxClient {
     @Override
     public RPatternTopicRx getPatternTopic(String pattern, Codec codec) {
         return RxProxyBuilder.create(commandExecutor, new RedissonPatternTopic(codec, commandExecutor, pattern), RPatternTopicRx.class);
-    }
-
-    @Override
-    public RPatternTopicRx getPatternTopic(PatternTopicOptions options) {
-        PatternTopicParams params = (PatternTopicParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonPatternTopic(params.getCodec(), ce, params.getPattern()), RPatternTopicRx.class);
     }
 
     @Override
@@ -729,14 +417,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <V> RQueueRx<V> getQueue(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonQueue<V>(params.getCodec(), ce, params.getName(), null),
-                new RedissonListRx<V>(new RedissonList<V>(params.getCodec(), ce, params.getName(), null)), RQueueRx.class);
-    }
-
-    @Override
     public <V> RRingBufferRx<V> getRingBuffer(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonRingBuffer<V>(commandExecutor, name, null), RRingBufferRx.class);
     }
@@ -744,14 +424,6 @@ public final class RedissonRx implements RedissonRxClient {
     @Override
     public <V> RRingBufferRx<V> getRingBuffer(String name, Codec codec) {
         return RxProxyBuilder.create(commandExecutor, new RedissonRingBuffer<V>(codec, commandExecutor, name, null), RRingBufferRx.class);
-    }
-
-    @Override
-    public <V> RRingBufferRx<V> getRingBuffer(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonRingBuffer<V>(params.getCodec(), ce, params.getName(), null), RRingBufferRx.class);
     }
 
     @Override
@@ -765,15 +437,6 @@ public final class RedissonRx implements RedissonRxClient {
     public <V> RBlockingQueueRx<V> getBlockingQueue(String name, Codec codec) {
         RedissonBlockingQueue<V> queue = new RedissonBlockingQueue<V>(codec, commandExecutor, name, null);
         return RxProxyBuilder.create(commandExecutor, queue, 
-                new RedissonBlockingQueueRx<V>(queue), RBlockingQueueRx.class);
-    }
-
-    @Override
-    public <V> RBlockingQueueRx<V> getBlockingQueue(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonBlockingQueue<V> queue = new RedissonBlockingQueue<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, queue,
                 new RedissonBlockingQueueRx<V>(queue), RBlockingQueueRx.class);
     }
 
@@ -792,15 +455,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <V> RDequeRx<V> getDeque(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonDeque<V> queue = new RedissonDeque<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, queue,
-                new RedissonListRx<V>(queue), RDequeRx.class);
-    }
-
-    @Override
     public <V, L> RTimeSeriesRx<V, L> getTimeSeries(String name) {
         RTimeSeries<V, L> timeSeries = new RedissonTimeSeries<V, L>(evictionScheduler, commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, timeSeries,
@@ -812,15 +466,6 @@ public final class RedissonRx implements RedissonRxClient {
         RTimeSeries<V, L> timeSeries = new RedissonTimeSeries<V, L>(codec, evictionScheduler, commandExecutor, name);
         return RxProxyBuilder.create(commandExecutor, timeSeries,
                 new RedissonTimeSeriesRx<V, L>(timeSeries, this), RTimeSeriesRx.class);
-    }
-
-    @Override
-    public <V, L> RTimeSeriesRx<V, L> getTimeSeries(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RTimeSeries<V, L> timeSeries = new RedissonTimeSeries<>(params.getCodec(), evictionScheduler, ce, params.getName());
-        return RxProxyBuilder.create(commandExecutor, timeSeries,
-                new RedissonTimeSeriesRx<>(timeSeries, this), RTimeSeriesRx.class);
     }
 
     @Override
@@ -838,38 +483,15 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <V> RSetCacheRx<V> getSetCache(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RSetCache<V> set = new RedissonSetCache<V>(params.getCodec(), evictionScheduler, ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, set,
-                new RedissonSetCacheRx<V>(set, this), RSetCacheRx.class);
-    }
-
-    @Override
     public RAtomicLongRx getAtomicLong(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonAtomicLong(commandExecutor, name), RAtomicLongRx.class);
-    }
-
-    @Override
-    public RAtomicLongRx getAtomicLong(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonAtomicLong(ce, params.getName()), RAtomicLongRx.class);
     }
 
     @Override
     public RAtomicDoubleRx getAtomicDouble(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonAtomicDouble(commandExecutor, name), RAtomicDoubleRx.class);
     }
-
-    @Override
-    public RAtomicDoubleRx getAtomicDouble(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonAtomicDouble(ce, params.getName()), RAtomicDoubleRx.class);
-    }
-
+    
     @Override
     public RRemoteService getRemoteService() {
         return getRemoteService("redisson_rs", connectionManager.getServiceManager().getCfg().getCodec());
@@ -891,48 +513,12 @@ public final class RedissonRx implements RedissonRxClient {
         if (codec != connectionManager.getServiceManager().getCfg().getCodec()) {
             executorId = executorId + ":" + name;
         }
-        return new RedissonRemoteService(codec, name, commandExecutor, executorId);
-    }
-
-    @Override
-    public RRemoteService getRemoteService(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        String executorId = connectionManager.getServiceManager().getId();
-        if (params.getCodec() != null
-                && params.getCodec() != connectionManager.getServiceManager().getCfg().getCodec()) {
-            executorId = executorId + ":" + params.getName();
-        }
-        return new RedissonRemoteService(params.getCodec(), params.getName(), commandExecutor, executorId);
+        return new RedissonRemoteService(codec, name, commandExecutor, executorId, responses);
     }
 
     @Override
     public RBitSetRx getBitSet(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonBitSet(commandExecutor, name), RBitSetRx.class);
-    }
-
-    @Override
-    public RBitSetRx getBitSet(CommonOptions options) {
-        CommonParams params = (CommonParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonBitSet(ce, params.getName()), RBitSetRx.class);
-    }
-
-    @Override
-    public <V> RBloomFilterRx<V> getBloomFilter(String name) {
-        return RxProxyBuilder.create(commandExecutor, new RedissonBloomFilter<>(commandExecutor, name), RBloomFilterRx.class);
-    }
-
-    @Override
-    public <V> RBloomFilterRx<V> getBloomFilter(String name, Codec codec) {
-        return RxProxyBuilder.create(commandExecutor, new RedissonBloomFilter<>(codec, commandExecutor, name), RBloomFilterRx.class);
-    }
-
-    @Override
-    public <V> RBloomFilterRx<V> getBloomFilter(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor,
-                new RedissonBloomFilter<V>(params.getCodec(), ce, params.getName()), RBloomFilterRx.class);
     }
 
     @Override
@@ -946,13 +532,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RFunctionRx getFunction(OptionalOptions options) {
-        OptionalParams params = (OptionalParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonFuction(ce, params.getCodec()), RFunctionRx.class);
-    }
-
-    @Override
     public RScriptRx getScript() {
         return RxProxyBuilder.create(commandExecutor, new RedissonScript(commandExecutor), RScriptRx.class);
     }
@@ -960,13 +539,6 @@ public final class RedissonRx implements RedissonRxClient {
     @Override
     public RScriptRx getScript(Codec codec) {
         return RxProxyBuilder.create(commandExecutor, new RedissonScript(commandExecutor, codec), RScriptRx.class);
-    }
-
-    @Override
-    public RScriptRx getScript(OptionalOptions options) {
-        OptionalParams params = (OptionalParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonScript(ce, params.getCodec()), RScriptRx.class);
     }
 
     @Override
@@ -985,13 +557,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public RKeysRx getKeys(KeysOptions options) {
-        KeysParams params = (KeysParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonKeys(ce), new RedissonKeysRx(ce), RKeysRx.class);
-    }
-
-    @Override
     public Config getConfig() {
         return connectionManager.getServiceManager().getCfg();
     }
@@ -1003,7 +568,7 @@ public final class RedissonRx implements RedissonRxClient {
 
     @Override
     public NodesGroup<ClusterNode> getClusterNodesGroup() {
-        if (!getConfig().isClusterConfig()) {
+        if (!connectionManager.isClusterMode()) {
             throw new IllegalStateException("Redisson not in cluster mode!");
         }
         return new RedisNodes<ClusterNode>(connectionManager, connectionManager.getServiceManager(), commandExecutor);
@@ -1026,7 +591,7 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <K, V> RMapCacheRx<K, V> getMapCache(String name, Codec codec, MapCacheOptions<K, V> options) {
+    public <K, V> RMapCacheRx<K, V> getMapCache(String name, Codec codec, MapOptions<K, V> options) {
         RedissonMapCache<K, V> map = new RedissonMapCache<K, V>(codec, evictionScheduler, commandExecutor, name, null, options, writeBehindService);
         return RxProxyBuilder.create(commandExecutor, map, 
                 new RedissonMapCacheRx<K, V>(map, commandExecutor), RMapCacheRx.class);
@@ -1034,54 +599,10 @@ public final class RedissonRx implements RedissonRxClient {
 
 
     @Override
-    public <K, V> RMapCacheRx<K, V> getMapCache(String name, MapCacheOptions<K, V> options) {
+    public <K, V> RMapCacheRx<K, V> getMapCache(String name, MapOptions<K, V> options) {
         RMap<K, V> map = new RedissonMapCache<K, V>(evictionScheduler, commandExecutor, name, null, options, writeBehindService);
         return RxProxyBuilder.create(commandExecutor, map, 
                 new RedissonMapCacheRx<K, V>(map, commandExecutor), RMapCacheRx.class);
-    }
-
-    @Override
-    public <K, V> RMapCacheNativeRx<K, V> getMapCacheNative(String name) {
-        RMap<K, V> map = new RedissonMapCacheNative<>(commandExecutor, name, null, null, null);
-        return RxProxyBuilder.create(commandExecutor, map,
-                new RedissonMapCacheRx<K, V>(map, commandExecutor), RMapCacheNativeRx.class);
-    }
-
-    @Override
-    public <K, V> RMapCacheNativeRx<K, V> getMapCacheNative(String name, Codec codec) {
-        RMap<K, V> map = new RedissonMapCacheNative<>(codec, commandExecutor, name, null, null, null);
-        return RxProxyBuilder.create(commandExecutor, map,
-                new RedissonMapCacheRx<K, V>(map, commandExecutor), RMapCacheNativeRx.class);
-    }
-
-    @Override
-    public <K, V> RMapCacheNativeRx<K, V> getMapCacheNative(org.redisson.api.options.MapOptions<K, V> options) {
-        MapParams<K, V> params = (MapParams<K, V>) options;
-        MapOptions<K, V> ops = createOptions(params);
-
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RMap<K, V> map = new RedissonMapCacheNative<>(params.getCodec(), ce, params.getName(), null, ops, writeBehindService);
-        return RxProxyBuilder.create(commandExecutor, map,
-                new RedissonMapCacheRx<>(map, ce), RMapCacheNativeRx.class);
-    }
-
-    private static <K, V> MapOptions<K, V> createOptions(MapParams<K, V> params) {
-        MapOptions<K, V> ops = MapOptions.<K, V>defaults()
-                .loader(params.getLoader())
-                .loaderAsync(params.getLoaderAsync())
-                .writer(params.getWriter())
-                .writerAsync(params.getWriterAsync())
-                .writeBehindDelay(params.getWriteBehindDelay())
-                .writeBehindBatchSize(params.getWriteBehindBatchSize())
-                .writerRetryInterval(Duration.ofMillis(params.getWriteRetryInterval()));
-
-        if (params.getWriteMode() != null) {
-            ops.writeMode(MapOptions.WriteMode.valueOf(params.getWriteMode().toString()));
-        }
-        if (params.getWriteRetryAttempts() > 0) {
-            ops.writerRetryAttempts(params.getWriteRetryAttempts());
-        }
-        return ops;
     }
 
     @Override
@@ -1101,7 +622,9 @@ public final class RedissonRx implements RedissonRxClient {
 
     @Override
     public <K, V> RLocalCachedMapRx<K, V> getLocalCachedMap(String name, LocalCachedMapOptions<K, V> options) {
-        return getLocalCachedMap(name, null, options);
+        RMap<K, V> map = new RedissonLocalCachedMap<>(commandExecutor, name, options, evictionScheduler, null, writeBehindService);
+        return RxProxyBuilder.create(commandExecutor, map,
+                new RedissonMapRx<>(map, commandExecutor), RLocalCachedMapRx.class);
     }
 
     @Override
@@ -1109,56 +632,6 @@ public final class RedissonRx implements RedissonRxClient {
         RMap<K, V> map = new RedissonLocalCachedMap<>(codec, commandExecutor, name, options, evictionScheduler, null, writeBehindService);
         return RxProxyBuilder.create(commandExecutor, map,
                 new RedissonMapRx<>(map, commandExecutor), RLocalCachedMapRx.class);
-    }
-
-    @Override
-    public <K, V> RLocalCachedMapRx<K, V> getLocalCachedMap(org.redisson.api.options.LocalCachedMapOptions<K, V> options) {
-        LocalCachedMapParams<K, V> params = (LocalCachedMapParams) options;
-
-        LocalCachedMapOptions<K, V> ops = LocalCachedMapOptions.<K, V>defaults()
-                .cacheProvider(LocalCachedMapOptions.CacheProvider.valueOf(params.getCacheProvider().toString()))
-                .cacheSize(params.getCacheSize())
-                .storeMode(LocalCachedMapOptions.StoreMode.valueOf(params.getStoreMode().toString()))
-                .evictionPolicy(LocalCachedMapOptions.EvictionPolicy.valueOf(params.getEvictionPolicy().toString()))
-                .maxIdle(params.getMaxIdleInMillis())
-                .loader(params.getLoader())
-                .loaderAsync(params.getLoaderAsync())
-                .reconnectionStrategy(LocalCachedMapOptions.ReconnectionStrategy.valueOf(params.getReconnectionStrategy().toString()))
-                .storeCacheMiss(params.isStoreCacheMiss())
-                .timeToLive(params.getTimeToLiveInMillis())
-                .syncStrategy(LocalCachedMapOptions.SyncStrategy.valueOf(params.getSyncStrategy().toString()))
-                .useObjectAsCacheKey(params.isUseObjectAsCacheKey())
-                .useTopicPattern(params.isUseTopicPattern())
-                .expirationEventPolicy(LocalCachedMapOptions.ExpirationEventPolicy.valueOf(params.getExpirationEventPolicy().toString()))
-                .writer(params.getWriter())
-                .writerAsync(params.getWriterAsync())
-                .writeBehindDelay(params.getWriteBehindDelay())
-                .writeBehindBatchSize(params.getWriteBehindBatchSize())
-                .writerRetryInterval(Duration.ofMillis(params.getWriteRetryInterval()));
-
-        if (params.getWriteMode() != null) {
-            ops.writeMode(MapOptions.WriteMode.valueOf(params.getWriteMode().toString()));
-        }
-        if (params.getWriteRetryAttempts() > 0) {
-            ops.writerRetryAttempts(params.getWriteRetryAttempts());
-        }
-
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RMap<K, V> map = new RedissonLocalCachedMap<>(params.getCodec(), ce, params.getName(),
-                                ops, evictionScheduler, null, writeBehindService);
-
-        return RxProxyBuilder.create(commandExecutor, map,
-                new RedissonMapRx<>(map, ce), RLocalCachedMapRx.class);
-    }
-
-    @Override
-    public <K, V> RLocalCachedMapCacheRx<K, V> getLocalCachedMapCache(String name, LocalCachedMapCacheOptions<K, V> options) {
-        throw new UnsupportedOperationException("This feature is implemented in the Redisson PRO version. Visit https://redisson.pro");
-    }
-
-    @Override
-    public <K, V> RLocalCachedMapCacheRx<K, V> getLocalCachedMapCache(String name, Codec codec, LocalCachedMapCacheOptions<K, V> options) {
-        throw new UnsupportedOperationException("This feature is implemented in the Redisson PRO version. Visit https://redisson.pro");
     }
 
     @Override
@@ -1181,15 +654,6 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
-    public <V> RBlockingDequeRx<V> getBlockingDeque(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonBlockingDeque<V> deque = new RedissonBlockingDeque<V>(params.getCodec(), ce, params.getName(), null);
-        return RxProxyBuilder.create(commandExecutor, deque,
-                new RedissonBlockingDequeRx<V>(deque), RBlockingDequeRx.class);
-    }
-
-    @Override
     public <V> RTransferQueueRx<V> getTransferQueue(String name) {
         String remoteName = RedissonObject.suffixName(name, "remoteService");
         RRemoteService service = getRemoteService(remoteName);
@@ -1203,17 +667,6 @@ public final class RedissonRx implements RedissonRxClient {
         String remoteName = RedissonObject.suffixName(name, "remoteService");
         RRemoteService service = getRemoteService(remoteName);
         RedissonTransferQueue<V> queue = new RedissonTransferQueue<V>(codec, commandExecutor, name, service);
-        return RxProxyBuilder.create(commandExecutor, queue,
-                new RedissonTransferQueueRx<V>(queue), RTransferQueueRx.class);
-    }
-
-    @Override
-    public <V> RTransferQueueRx<V> getTransferQueue(PlainOptions options) {
-        PlainParams params = (PlainParams) options;
-        String remoteName = RedissonObject.suffixName(params.getName(), "remoteService");
-        RRemoteService service = getRemoteService(remoteName);
-        CommandRxExecutor ce = commandExecutor.copy(params);
-        RedissonTransferQueue<V> queue = new RedissonTransferQueue<V>(params.getCodec(), ce, params.getName(), service);
         return RxProxyBuilder.create(commandExecutor, queue,
                 new RedissonTransferQueueRx<V>(queue), RTransferQueueRx.class);
     }

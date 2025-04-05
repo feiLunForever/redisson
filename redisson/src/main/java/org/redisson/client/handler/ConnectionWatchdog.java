@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import io.netty.channel.*;
 import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.group.ChannelGroup;
 import io.netty.util.Timer;
-import org.redisson.client.*;
+import org.redisson.client.ChannelName;
+import org.redisson.client.RedisConnection;
+import org.redisson.client.RedisPubSubConnection;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.protocol.CommandData;
-import org.redisson.client.protocol.QueueCommand;
 import org.redisson.misc.AsyncSemaphore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,7 +149,7 @@ public class ConnectionWatchdog extends ChannelInboundHandlerAdapter {
                                         channel.close();
                                         return;
                                     } else {
-                                        log.debug("{} connected to {}, command: {}", connection, connection.getRedisClient().getAddr(), connection.getCurrentCommandData());
+                                        log.debug("{} connected to {}, command: {}", connection, connection.getRedisClient().getAddr(), connection.getCurrentCommand());
                                     }
                                     refresh(connection, channel);
                                 } else {
@@ -184,7 +185,7 @@ public class ConnectionWatchdog extends ChannelInboundHandlerAdapter {
     }
 
     private void refresh(RedisConnection connection, Channel channel) {
-        QueueCommand currentCommand = connection.getCurrentCommandData();
+        CommandData<?, ?> currentCommand = connection.getCurrentCommand();
         connection.fireConnected();
         connection.updateChannel(channel);
         
@@ -192,16 +193,8 @@ public class ConnectionWatchdog extends ChannelInboundHandlerAdapter {
             connection.clearFastReconnect();
         }
 
-        if (currentCommand instanceof CommandData) {
-            reattachBlockingQueue(connection, (CommandData<?, ?>) currentCommand);
-        }
+        reattachBlockingQueue(connection, currentCommand);            
         reattachPubSub(connection);
-
-        if (currentCommand != null
-                && !currentCommand.isBlockingCommand()
-                    && !(connection instanceof RedisPubSubConnection)) {
-            currentCommand.tryFailure(new RedisReconnectedException("Channel has been reconnected"));
-        }
     }
 
     private void reattachBlockingQueue(RedisConnection connection, CommandData<?, ?> currentCommand) {

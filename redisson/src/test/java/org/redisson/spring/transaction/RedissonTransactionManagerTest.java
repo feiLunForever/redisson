@@ -1,12 +1,17 @@
 package org.redisson.spring.transaction;
 
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.redisson.RedisRunner;
 import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -19,6 +24,16 @@ public class RedissonTransactionManagerTest {
     
     @Autowired
     private TransactionalBean transactionalBean;
+    
+    @BeforeAll
+    public static void beforeClass() throws IOException, InterruptedException {
+        RedisRunner.startDefaultRedisServerInstance();
+    }
+
+    @AfterAll
+    public static void afterClass() throws IOException, InterruptedException {
+        RedisRunner.shutDownDefaultRedisServerInstance();
+    }
     
     @Test
     public void test() {

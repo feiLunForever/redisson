@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,7 +41,6 @@ public class RedissonQueueSemaphore extends RedissonSemaphore {
     public RedissonQueueSemaphore(CommandAsyncExecutor commandExecutor, String name, Codec codec) {
         super(commandExecutor, name);
         this.codec = codec;
-        this.name = name;
     }
     
     public void setQueueName(String queueName) {

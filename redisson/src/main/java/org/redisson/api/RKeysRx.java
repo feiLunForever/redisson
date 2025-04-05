@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@ import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.core.Single;
-import org.redisson.api.options.KeysScanOptions;
 
 import java.util.concurrent.TimeUnit;
 
@@ -153,41 +152,49 @@ public interface RKeysRx {
      * @return keys
      */
     Flowable<String> getKeys();
-
-    /**
-     * Get all keys using iterable. Keys traversing with SCAN operation.
-     *
-     * @param options scan options
-     * @return Iterable object
-     */
-    Flowable<String> getKeys(KeysScanOptions options);
     
     /**
-     * Use {@link #getKeys(KeysScanOptions)} instead.
+     * Load keys in incrementally iterate mode. Keys traversed with SCAN operation.
+     * Each SCAN operation loads up to <code>count</code> keys per request.
      *
      * @param count - keys loaded per request to Redis
      * @return keys
      */
-    @Deprecated
     Flowable<String> getKeys(int count);
 
     /**
-     * Use {@link #getKeys(KeysScanOptions)} instead.
+     * Find keys by pattern and load it in incrementally iterate mode.
+     * Keys traversed with SCAN operation.
+     * Each SCAN operation loads up to 10 keys per request.
+     * <p>
+     *
+     *  Supported glob-style patterns:
+     *    h?llo subscribes to hello, hallo and hxllo
+     *    h*llo subscribes to hllo and heeeello
+     *    h[ae]llo subscribes to hello and hallo, but not hillo
      *
      * @param pattern - match pattern
      * @return keys
      */
-    @Deprecated
     Flowable<String> getKeysByPattern(String pattern);
 
     /**
-     * Use {@link #getKeys(KeysScanOptions)} instead.
+     * Get all keys by pattern using iterator. 
+     * Keys traversed with SCAN operation. Each SCAN operation loads 
+     * up to <code>count</code> keys per request. 
+     * <p>
+     *  Supported glob-style patterns:
+     *  <p>
+     *    h?llo subscribes to hello, hallo and hxllo
+     *    <p>
+     *    h*llo subscribes to hllo and heeeello
+     *    <p>
+     *    h[ae]llo subscribes to hello and hallo, but not hillo
      *
      * @param pattern - match pattern
      * @param count - keys loaded per request to Redis
      * @return keys
      */
-    @Deprecated
     Flowable<String> getKeysByPattern(String pattern, int count);
     
     /**
@@ -224,21 +231,6 @@ public interface RKeysRx {
      * @return deleted objects amount
      */
     Single<Long> deleteByPattern(String pattern);
-
-    /**
-     * Unlink multiple objects by a key pattern.
-     *
-     * Uses Lua script.
-     *
-     *  Supported glob-style patterns:
-     *    h?llo subscribes to hello, hallo and hxllo
-     *    h*llo subscribes to hllo and heeeello
-     *    h[ae]llo subscribes to hello and hallo, but not hillo
-     *
-     * @param pattern - match pattern
-     * @return deleted objects amount
-     */
-    Single<Long> unlinkByPattern(String pattern);
 
     /**
      * Delete multiple objects by name.
@@ -314,28 +306,5 @@ public interface RKeysRx {
      * @return void
      */
     Completable flushallParallel();
-
-    /**
-     * Adds global object event listener
-     * which is invoked for each Redisson object.
-     *
-     * @see org.redisson.api.listener.TrackingListener
-     * @see org.redisson.api.listener.SetObjectListener
-     * @see org.redisson.api.listener.NewObjectListener
-     * @see org.redisson.api.listener.FlushListener
-     * @see org.redisson.api.ExpiredObjectListener
-     * @see org.redisson.api.DeletedObjectListener
-     *
-     * @param listener object event listener
-     * @return listener id
-     */
-    Single<Integer> addListener(ObjectListener listener);
-
-    /**
-     * Removes global object event listener
-     *
-     * @param listenerId - listener id
-     */
-    Completable removeListener(int listenerId);
 
 }

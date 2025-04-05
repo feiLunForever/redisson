@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,14 +17,12 @@ package org.redisson.transaction;
 
 import org.redisson.client.codec.Codec;
 
-import java.util.Objects;
-
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public final class HashKey {
+public class HashKey {
 
     final Codec codec;
     final String name;
@@ -43,15 +41,29 @@ public final class HashKey {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        HashKey hashKey = (HashKey) o;
-        return Objects.equals(name, hashKey.name);
+    @SuppressWarnings("AvoidInlineConditionals")
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + ((name == null) ? 0 : name.hashCode());
+        return result;
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hashCode(name);
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        HashKey other = (HashKey) obj;
+        if (name == null) {
+            if (other.name != null)
+                return false;
+        } else if (!name.equals(other.name))
+            return false;
+        return true;
     }
+    
 }

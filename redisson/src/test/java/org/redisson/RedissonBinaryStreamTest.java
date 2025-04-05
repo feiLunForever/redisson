@@ -18,7 +18,7 @@ import java.util.concurrent.ThreadLocalRandom;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonBinaryStreamTest extends RedisDockerTest {
+public class RedissonBinaryStreamTest extends BaseTest {
 
     @Test
     public void testAsyncReadWrite() throws ExecutionException, InterruptedException {
@@ -95,9 +95,6 @@ public class RedissonBinaryStreamTest extends RedisDockerTest {
         b.get(bb);
         assertThat(c.size()).isEqualTo(3);
         assertThat(bb).isEqualTo(new byte[]{1, 2, 3});
-        
-        c.truncate(0);
-        assertThat(c.size()).isEqualTo(0);
     }
 
     @Test

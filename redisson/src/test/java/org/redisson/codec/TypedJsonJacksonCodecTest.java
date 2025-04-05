@@ -1,21 +1,27 @@
 package org.redisson.codec;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.util.CharsetUtil;
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.junit.jupiter.api.Test;
-import org.redisson.RedisDockerTest;
+import org.redisson.BaseTest;
 import org.redisson.api.RBucket;
 import org.redisson.api.RMap;
 import org.redisson.client.handler.State;
 
-import java.util.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.util.CharsetUtil;
 
-public class TypedJsonJacksonCodecTest extends RedisDockerTest {
+public class TypedJsonJacksonCodecTest extends BaseTest {
 
     public static class Simple {
         

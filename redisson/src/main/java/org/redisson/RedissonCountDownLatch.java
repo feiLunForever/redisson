@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,8 +24,6 @@ import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.misc.CompletableFutureWrapper;
 import org.redisson.pubsub.CountDownLatchPubSub;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.concurrent.*;
@@ -43,8 +41,6 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  */
 public class RedissonCountDownLatch extends RedissonObject implements RCountDownLatch {
-
-    private static final Logger LOGGER = LoggerFactory.getLogger(RedissonCountDownLatch.class);
 
     private final CountDownLatchPubSub pubSub;
 
@@ -122,10 +118,9 @@ public class RedissonCountDownLatch extends RedissonObject implements RCountDown
         CompletableFuture<RedissonCountDownLatchEntry> promise = subscribe();
         try {
             promise.toCompletableFuture().get(time, unit);
-        } catch (ExecutionException e) {
-            LOGGER.error(e.getMessage(), e);
-            return false;
-        } catch (TimeoutException | CancellationException e) {
+        } catch (ExecutionException | CancellationException e) {
+            // skip
+        } catch (TimeoutException e) {
             return false;
         }
 
@@ -141,14 +136,14 @@ public class RedissonCountDownLatch extends RedissonObject implements RCountDown
                 }
                 current = System.currentTimeMillis();
                 // waiting for open state
-                promise.join().getLatch().await(remainTime, TimeUnit.MILLISECONDS);
+                commandExecutor.getNow(promise).getLatch().await(remainTime, TimeUnit.MILLISECONDS);
 
                 remainTime -= System.currentTimeMillis() - current;
             }
 
             return true;
         } finally {
-            unsubscribe(promise.join());
+            unsubscribe(commandExecutor.getNow(promise));
         }
     }
 

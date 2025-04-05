@@ -1,9 +1,8 @@
 package org.redisson;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.redisson.api.*;
-import org.redisson.config.Config;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -14,22 +13,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonRateLimiterTest extends RedisDockerTest {
-
-    @Test
-    public void testKeepAliveTime() throws InterruptedException {
-        RRateLimiter limiter = redisson.getRateLimiter("testKeepAliveTime");
-        limiter.delete();
-        limiter.trySetRate(RateType.OVERALL, 1, Duration.ofSeconds(1), Duration.ofSeconds(1));
-        Thread.sleep(Duration.ofMillis(1100).toMillis());
-        assertThat(limiter.isExists()).isFalse();
-        limiter.trySetRate(RateType.OVERALL, 10, Duration.ofSeconds(2), Duration.ofSeconds(2));
-        Thread.sleep(Duration.ofSeconds(1).toMillis());
-        assertThat(limiter.tryAcquire()).isTrue();
-        assertThat(limiter.remainTimeToLive()).isGreaterThan(1500);
-
-
-    }
+public class RedissonRateLimiterTest extends BaseTest {
 
     @Test
     public void testExpire2() throws InterruptedException {
@@ -63,7 +47,7 @@ public class RedissonRateLimiterTest extends RedisDockerTest {
             Thread.sleep(1000);
         }
 
-        assertThat(sizes.stream().filter(s -> s == rate).count()).isGreaterThanOrEqualTo(16);
+        assertThat(sizes.stream().filter(s -> s == rate).count()).isGreaterThan(16);
         e.shutdownNow();
     }
 
@@ -135,7 +119,7 @@ public class RedissonRateLimiterTest extends RedisDockerTest {
         limiter.trySetRate(RateType.PER_CLIENT, 1, 1, RateIntervalUnit.SECONDS);
         
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> limiter.tryAcquire(20))
-                    .hasMessageContaining("Requested permits amount cannot exceed defined rate");
+                    .hasMessageContaining("Requested permits amount could not exceed defined rate");
         assertThat(limiter.tryAcquire()).isTrue();
     }
 
@@ -178,14 +162,15 @@ public class RedissonRateLimiterTest extends RedisDockerTest {
     
     
     @Test
-    @Timeout(2)
     public void testTryAcquire() {
-        RRateLimiter rr = redisson.getRateLimiter("acquire");
-        assertThat(rr.trySetRate(RateType.OVERALL, 1, 5, RateIntervalUnit.SECONDS)).isTrue();
+        Assertions.assertTimeout(Duration.ofMillis(1500), () -> {
+            RRateLimiter rr = redisson.getRateLimiter("acquire");
+            assertThat(rr.trySetRate(RateType.OVERALL, 1, 5, RateIntervalUnit.SECONDS)).isTrue();
 
-        assertThat(rr.tryAcquire(1, 1, TimeUnit.SECONDS)).isTrue();
-        assertThat(rr.tryAcquire(1, 1, TimeUnit.SECONDS)).isFalse();
-        assertThat(rr.tryAcquire()).isFalse();
+            assertThat(rr.tryAcquire(1, 1, TimeUnit.SECONDS)).isTrue();
+            assertThat(rr.tryAcquire(1, 1, TimeUnit.SECONDS)).isFalse();
+            assertThat(rr.tryAcquire()).isFalse();
+        });
     }
     
     @Test
@@ -319,7 +304,7 @@ public class RedissonRateLimiterTest extends RedisDockerTest {
         for (Long value : queue) {
             if (count % 10 == 0) {
                 if (start > 0) {
-                    assertThat(value - start).isGreaterThan(940);
+                    assertThat(value - start).isGreaterThan(980);
                 }
                 start = value;
             }

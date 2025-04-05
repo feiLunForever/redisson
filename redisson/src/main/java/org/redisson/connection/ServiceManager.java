@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,20 +18,15 @@ package org.redisson.connection;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.epoll.EpollDatagramChannel;
-import io.netty.channel.epoll.EpollDomainSocketChannel;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.kqueue.KQueueDatagramChannel;
-import io.netty.channel.kqueue.KQueueDomainSocketChannel;
 import io.netty.channel.kqueue.KQueueEventLoopGroup;
 import io.netty.channel.kqueue.KQueueSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.channel.socket.DuplexChannel;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
-import io.netty.incubator.channel.uring.IOUringDatagramChannel;
-import io.netty.incubator.channel.uring.IOUringEventLoopGroup;
-import io.netty.incubator.channel.uring.IOUringSocketChannel;
 import io.netty.resolver.AddressResolver;
 import io.netty.resolver.AddressResolverGroup;
 import io.netty.resolver.DefaultAddressResolverGroup;
@@ -39,59 +34,40 @@ import io.netty.resolver.dns.DnsServerAddressStreamProviders;
 import io.netty.util.Timer;
 import io.netty.util.TimerTask;
 import io.netty.util.*;
-import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.FutureListener;
-import io.netty.util.concurrent.GenericFutureListener;
+import io.netty.util.concurrent.*;
 import io.netty.util.internal.PlatformDependent;
 import org.redisson.ElementsSubscribeService;
-import org.redisson.QueueTransferService;
-import org.redisson.RedissonShutdownException;
+import org.redisson.Version;
 import org.redisson.api.NatMapper;
 import org.redisson.api.RFuture;
-import org.redisson.api.RLock;
 import org.redisson.cache.LRUCacheMap;
 import org.redisson.client.RedisNodeNotFoundException;
-import org.redisson.client.codec.Codec;
-import org.redisson.client.protocol.RedisCommand;
-import org.redisson.client.protocol.RedisCommands;
 import org.redisson.config.Config;
 import org.redisson.config.MasterSlaveServersConfig;
-import org.redisson.config.Protocol;
 import org.redisson.config.TransportMode;
-import org.redisson.liveobject.resolver.MapResolver;
 import org.redisson.misc.CompletableFutureWrapper;
-import org.redisson.misc.FastRemovalQueue;
-import org.redisson.misc.RandomXoshiro256PlusPlus;
+import org.redisson.misc.InfinitySemaphoreLatch;
 import org.redisson.misc.RedisURI;
-import org.redisson.remote.ResponseEntry;
-import org.redisson.renewal.LockRenewalScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 /**
  *
  * @author Nikita Koksharov
  *
  */
-public final class ServiceManager {
+public class ServiceManager {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -124,11 +100,12 @@ public final class ServiceManager {
 
     private final ConnectionEventsHub connectionEventsHub = new ConnectionEventsHub();
 
+    //代表本服务的id，用uuid来表示
     private final String id = UUID.randomUUID().toString();
 
     private final EventLoopGroup group;
 
-    private Class<? extends DuplexChannel> socketChannelClass;
+    private final Class<? extends SocketChannel> socketChannelClass;
 
     private final AddressResolverGroup<InetSocketAddress> resolverGroup;
 
@@ -142,7 +119,9 @@ public final class ServiceManager {
 
     private IdleConnectionWatcher connectionWatcher;
 
-    private final AtomicBoolean shutdownLatch = new AtomicBoolean();
+    private final Promise<Void> shutdownPromise = ImmediateEventExecutor.INSTANCE.newPromise();
+
+    private final InfinitySemaphoreLatch shutdownLatch = new InfinitySemaphoreLatch();
 
     private final ElementsSubscribeService elementsSubscribeService = new ElementsSubscribeService(this);
 
@@ -152,83 +131,38 @@ public final class ServiceManager {
 
     private static final Map<String, String> SHA_CACHE = new LRUCacheMap<>(500, 0, 0);
 
-    private final Map<String, ResponseEntry> responses = new ConcurrentHashMap<>();
-
-    private final QueueTransferService queueTransferService = new QueueTransferService();
-
-    private LockRenewalScheduler renewalScheduler;
-
-    public ServiceManager(MasterSlaveServersConfig config, Config cfg) {
-        RedisURI u = null;
-        if (config.getMasterAddress() != null) {
-            u = new RedisURI(config.getMasterAddress());
-            if (u.isUDS()) {
-                if (!cfg.isSingleConfig()) {
-                    throw new IllegalStateException("UDS is supported only in a single server mode");
-                }
-                if (cfg.getTransportMode() != TransportMode.EPOLL
-                        && cfg.getTransportMode() != TransportMode.KQUEUE) {
-                    throw new IllegalStateException("UDS is supported only if transportMode = EPOLL or KQUEUE");
-                }
-            }
-        }
+    public ServiceManager(Config cfg) {
+        Version.logVersion();
 
         if (cfg.getTransportMode() == TransportMode.EPOLL) {
             if (cfg.getEventLoopGroup() == null) {
-                if (cfg.getNettyExecutor() != null) {
-                    this.group = new EpollEventLoopGroup(cfg.getNettyThreads(), cfg.getNettyExecutor());
-                } else {
-                    this.group = new EpollEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
-                }
+                this.group = new EpollEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
             } else {
                 this.group = cfg.getEventLoopGroup();
             }
 
             this.socketChannelClass = EpollSocketChannel.class;
-
-            if (u != null && u.isUDS()) {
-                this.socketChannelClass = EpollDomainSocketChannel.class;
-            }
-
             if (PlatformDependent.isAndroid()) {
                 this.resolverGroup = DefaultAddressResolverGroup.INSTANCE;
             } else {
-                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(EpollDatagramChannel.class, EpollSocketChannel.class, DnsServerAddressStreamProviders.platformDefault());
+                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(EpollDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
             }
         } else if (cfg.getTransportMode() == TransportMode.KQUEUE) {
             if (cfg.getEventLoopGroup() == null) {
-                if (cfg.getNettyExecutor() != null) {
-                    this.group = new KQueueEventLoopGroup(cfg.getNettyThreads(), cfg.getNettyExecutor());
-                } else {
-                    this.group = new KQueueEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
-                }
+                this.group = new KQueueEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
             } else {
                 this.group = cfg.getEventLoopGroup();
             }
 
             this.socketChannelClass = KQueueSocketChannel.class;
-
-            if (u != null && u.isUDS()) {
-                this.socketChannelClass = KQueueDomainSocketChannel.class;
-            }
-
-            this.resolverGroup = cfg.getAddressResolverGroupFactory().create(KQueueDatagramChannel.class, KQueueSocketChannel.class, DnsServerAddressStreamProviders.platformDefault());
-        } else if (cfg.getTransportMode() == TransportMode.IO_URING) {
-            if (cfg.getEventLoopGroup() == null) {
-                this.group = createIOUringGroup(cfg);
+            if (PlatformDependent.isAndroid()) {
+                this.resolverGroup = DefaultAddressResolverGroup.INSTANCE;
             } else {
-                this.group = cfg.getEventLoopGroup();
+                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(KQueueDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
             }
-
-            this.socketChannelClass = IOUringSocketChannel.class;
-            this.resolverGroup = cfg.getAddressResolverGroupFactory().create(IOUringDatagramChannel.class, IOUringSocketChannel.class, DnsServerAddressStreamProviders.platformDefault());
         } else {
             if (cfg.getEventLoopGroup() == null) {
-                if (cfg.getNettyExecutor() != null) {
-                    this.group = new NioEventLoopGroup(cfg.getNettyThreads(), cfg.getNettyExecutor());
-                } else {
-                    this.group = new NioEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
-                }
+                this.group = new NioEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
             } else {
                 this.group = cfg.getEventLoopGroup();
             }
@@ -237,7 +171,7 @@ public final class ServiceManager {
             if (PlatformDependent.isAndroid()) {
                 this.resolverGroup = DefaultAddressResolverGroup.INSTANCE;
             } else {
-                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(NioDatagramChannel.class, NioSocketChannel.class, DnsServerAddressStreamProviders.platformDefault());
+                this.resolverGroup = cfg.getAddressResolverGroupFactory().create(NioDatagramChannel.class, DnsServerAddressStreamProviders.platformDefault());
             }
         }
 
@@ -252,7 +186,6 @@ public final class ServiceManager {
         }
 
         this.cfg = cfg;
-        this.config = config;
 
         if (cfg.getConnectionListener() != null) {
             this.connectionEventsHub.addListener(cfg.getConnectionListener());
@@ -269,17 +202,12 @@ public final class ServiceManager {
                 SCRIPT_SHA_CACHE.remove(addr);
             }
         });
-
-        initTimer();
     }
 
-    // for Quarkus substitution
-    private static EventLoopGroup createIOUringGroup(Config cfg) {
-        return new IOUringEventLoopGroup(cfg.getNettyThreads(), new DefaultThreadFactory("redisson-netty"));
-    }
-
-    private void initTimer() {
-        int minTimeout = Math.min(config.getRetryInterval(), config.getTimeout());
+    public void initTimer() {
+        int[] timeouts = new int[]{config.getRetryInterval(), config.getTimeout()};
+        Arrays.sort(timeouts);
+        int minTimeout = timeouts[0];
         if (minTimeout % 100 != 0) {
             minTimeout = (minTimeout % 100) / 2;
         } else if (minTimeout == 100) {
@@ -295,6 +223,7 @@ public final class ServiceManager {
 
     public Timeout newTimeout(TimerTask task, long delay, TimeUnit unit) {
         try {
+            //使用netty提供的时间轮来实现
             return timer.newTimeout(task, delay, unit);
         } catch (IllegalStateException e) {
             if (isShuttingDown()) {
@@ -306,12 +235,7 @@ public final class ServiceManager {
     }
 
     public boolean isShuttingDown() {
-        return shutdownLatch.get();
-    }
-
-    public boolean isShuttingDown(Throwable e) {
-        return e instanceof RedissonShutdownException
-                    || e.getCause() instanceof RedissonShutdownException;
+        return shutdownLatch.isClosed();
     }
 
     public boolean isShutdown() {
@@ -330,30 +254,6 @@ public final class ServiceManager {
         return group;
     }
 
-    public CompletableFuture<List<RedisURI>> resolveAll(RedisURI uri) {
-        if (uri.isIP()) {
-            RedisURI mappedUri = toURI(uri.getScheme(), uri.getHost(), "" + uri.getPort());
-            return CompletableFuture.completedFuture(Collections.singletonList(mappedUri));
-        }
-
-        AddressResolver<InetSocketAddress> resolver = resolverGroup.getResolver(group.next());
-        Future<List<InetSocketAddress>> future = resolver.resolveAll(InetSocketAddress.createUnresolved(uri.getHost(), uri.getPort()));
-        CompletableFuture<List<RedisURI>> result = new CompletableFuture<>();
-        future.addListener((GenericFutureListener<Future<List<InetSocketAddress>>>) f -> {
-            if (!f.isSuccess()) {
-                log.error("Unable to resolve {}", uri, f.cause());
-                result.completeExceptionally(f.cause());
-                return;
-            }
-
-            List<RedisURI> nodes = future.getNow().stream().map(addr -> {
-                return toURI(uri.getScheme(), addr.getAddress().getHostAddress(), "" + addr.getPort());
-            }).collect(Collectors.toList());
-            result.complete(nodes);
-        });
-        return result;
-    }
-    
     public AddressResolverGroup<InetSocketAddress> getResolverGroup() {
         return resolverGroup;
     }
@@ -374,69 +274,34 @@ public final class ServiceManager {
         return connectionWatcher;
     }
 
-    public Class<? extends DuplexChannel> getSocketChannelClass() {
+    public Class<? extends SocketChannel> getSocketChannelClass() {
         return socketChannelClass;
     }
 
-    private final FastRemovalQueue<CompletableFuture<?>> lastFutures = new FastRemovalQueue<>();
-
-    public void addFuture(CompletableFuture<?> future) {
-        lastFutures.add(future);
-        future.whenComplete((r, e) -> {
-            lastFutures.remove(future);
-        });
-
-        if (lastFutures.size() > 100) {
-            lastFutures.poll();
-        }
+    public Promise<Void> getShutdownPromise() {
+        return shutdownPromise;
     }
 
-    public void shutdownFutures(long timeout, TimeUnit unit) {
-        Stream<CompletableFuture<?>> stream = StreamSupport.stream(lastFutures.spliterator(), false);
-        CompletableFuture<Void> future = CompletableFuture.allOf(stream.toArray(CompletableFuture[]::new));
-        try {
-            future.get(timeout, unit);
-        } catch (Exception e) {
-            // skip
-        }
-        lastFutures.forEach(f -> f.completeExceptionally(new RedissonShutdownException("Redisson is shutdown")));
-        lastFutures.clear();
-    }
-
-    public void close() {
-        shutdownLatch.set(true);
-    }
-
-    private volatile String lastClusterNodes;
-
-    public void setLastClusterNodes(String lastClusterNodes) {
-        this.lastClusterNodes = lastClusterNodes;
-    }
-
-    public <T> CompletableFuture<T> createNodeNotFoundFuture(String channelName, int slot) {
-        RedisNodeNotFoundException ex = new RedisNodeNotFoundException("Node for name: " + channelName + " slot: " + slot
-                + " hasn't been discovered yet. Check cluster slots coverage using CLUSTER NODES command. " +
-                "Increase value of retryAttempts and/or retryInterval settings. Last cluster nodes topology: " + lastClusterNodes);
-        CompletableFuture<T> promise = new CompletableFuture<>();
-        promise.completeExceptionally(ex);
-        return promise;
+    public InfinitySemaphoreLatch getShutdownLatch() {
+        return shutdownLatch;
     }
 
     public RedisNodeNotFoundException createNodeNotFoundException(NodeSource source) {
         RedisNodeNotFoundException ex;
-        if (cfg.isClusterConfig()
-                && source.getSlot() != null
-                    && source.getAddr() == null
-                        && source.getRedisClient() == null) {
-            ex = new RedisNodeNotFoundException("Node for slot: " + source.getSlot() + " hasn't been discovered yet. Increase value of retryAttempts and/or retryInterval settings. Last cluster nodes topology: " + lastClusterNodes);
+        if (source.getSlot() != null && source.getAddr() == null && source.getRedisClient() == null) {
+            ex = new RedisNodeNotFoundException("Node for slot: " + source.getSlot() + " hasn't been discovered yet. Check cluster slots coverage using CLUSTER NODES command. Increase value of retryAttempts and/or retryInterval settings.");
         } else {
-            ex = new RedisNodeNotFoundException("Node: " + source + " hasn't been discovered yet. Increase value of retryAttempts and/or retryInterval settings. Last cluster nodes topology: " + lastClusterNodes);
+            ex = new RedisNodeNotFoundException("Node: " + source + " hasn't been discovered yet. Increase value of retryAttempts and/or retryInterval settings.");
         }
         return ex;
     }
 
     public MasterSlaveServersConfig getConfig() {
         return config;
+    }
+
+    public void setConfig(MasterSlaveServersConfig config) {
+        this.config = config;
     }
 
     public ElementsSubscribeService getElementsSubscribeService() {
@@ -471,42 +336,6 @@ public final class ServiceManager {
         return result;
     }
 
-    public CompletableFuture<InetSocketAddress> resolve(RedisURI address) {
-        if (address.isIP()) {
-            try {
-                InetAddress ip = InetAddress.getByName(address.getHost());
-                InetSocketAddress addr = new InetSocketAddress(InetAddress.getByAddress(address.getHost(), ip.getAddress()), address.getPort());
-                return CompletableFuture.completedFuture(addr);
-            } catch (UnknownHostException e) {
-                throw new IllegalArgumentException(e);
-            }
-        }
-
-        CompletableFuture<InetSocketAddress> result = new CompletableFuture<>();
-        AddressResolver<InetSocketAddress> resolver = resolverGroup.getResolver(group.next());
-        InetSocketAddress addr = InetSocketAddress.createUnresolved(address.getHost(), address.getPort());
-        Future<InetSocketAddress> future = resolver.resolve(addr);
-        future.addListener((FutureListener<InetSocketAddress>) f -> {
-            if (!f.isSuccess()) {
-                log.error("Unable to resolve {}", address, f.cause());
-                result.completeExceptionally(f.cause());
-                return;
-            }
-
-            InetSocketAddress s = f.getNow();
-            // apply natMapper
-            RedisURI uri = toURI(address.getScheme(), s.getAddress().getHostAddress(), "" + address.getPort());
-            if (!uri.getHost().equals(s.getAddress().getHostAddress())) {
-                InetAddress ip = InetAddress.getByName(uri.getHost());
-                InetSocketAddress mappedAddr = new InetSocketAddress(InetAddress.getByAddress(s.getAddress().getHostAddress(), ip.getAddress()), uri.getPort());
-                result.complete(mappedAddr);
-                return;
-            }
-            result.complete(s);
-        });
-        return result;
-    }
-
     public RedisURI toURI(String scheme, String host, String port) {
         // convert IPv6 address to unified compressed format
         if (NetUtil.isValidIpV6Address(host)) {
@@ -519,20 +348,11 @@ public final class ServiceManager {
             }
         }
         RedisURI uri = new RedisURI(scheme + "://" + host + ":" + port);
-        try {
-            return natMapper.map(uri);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return uri;
-        }
+        return natMapper.map(uri);
     }
 
     public void setNatMapper(NatMapper natMapper) {
         this.natMapper = natMapper;
-    }
-
-    public NatMapper getNatMapper() {
-        return natMapper;
     }
 
     public boolean isCached(InetSocketAddress addr, String script) {
@@ -552,7 +372,7 @@ public final class ServiceManager {
         return SHA_CACHE.computeIfAbsent(script, k -> {
             try {
                 MessageDigest mdigest = MessageDigest.getInstance("SHA-1");
-                byte[] s = mdigest.digest(script.getBytes(StandardCharsets.UTF_8));
+                byte[] s = mdigest.digest(script.getBytes());
                 return ByteBufUtil.hexDump(s);
             } catch (Exception e) {
                 throw new IllegalStateException(e);
@@ -572,9 +392,7 @@ public final class ServiceManager {
         CompletionStage<T> future = supplier.get();
         future.whenComplete((r, e) -> {
             if (e != null) {
-                if (e.getCause() != null
-                        && e.getCause().getMessage() != null
-                            && e.getCause().getMessage().equals("None of slaves were synced")) {
+                if (e.getCause().getMessage().equals("None of slaves were synced")) {
                     if (attempts.decrementAndGet() < 0) {
                         result.completeExceptionally(e);
                         return;
@@ -593,21 +411,15 @@ public final class ServiceManager {
         });
     }
 
-    public <V> void transfer(CompletionStage<V> source, CompletableFuture<V> dest) {
-        source.whenComplete((res, e) -> {
+    public <V> void transfer(CompletionStage<V> future1, CompletableFuture<V> future2) {
+        future1.whenComplete((res, e) -> {
             if (e != null) {
-                dest.completeExceptionally(e);
+                future2.completeExceptionally(e);
                 return;
             }
 
-            dest.complete(res);
+            future2.complete(res);
         });
-    }
-
-    private final Random random = RandomXoshiro256PlusPlus.create();
-
-    public Long generateValue() {
-        return random.nextLong();
     }
 
     public String generateId() {
@@ -619,8 +431,7 @@ public final class ServiceManager {
     }
     public byte[] generateIdArray(int size) {
         byte[] id = new byte[size];
-
-        random.nextBytes(id);
+        ThreadLocalRandom.current().nextBytes(id);
         return id;
     }
 
@@ -628,81 +439,5 @@ public final class ServiceManager {
 
     public AtomicBoolean getLiveObjectLatch() {
         return liveObjectLatch;
-    }
-
-    public boolean isResp3() {
-        return cfg.getProtocol() == Protocol.RESP3;
-    }
-
-    private static final Map<RedisCommand<?>, RedisCommand<?>> RESP3MAPPING = new HashMap<>();
-
-    static {
-        RESP3MAPPING.put(RedisCommands.XREADGROUP_BLOCKING, RedisCommands.XREADGROUP_BLOCKING_V2);
-        RESP3MAPPING.put(RedisCommands.XREADGROUP, RedisCommands.XREADGROUP_V2);
-        RESP3MAPPING.put(RedisCommands.XREADGROUP_BLOCKING_SINGLE, RedisCommands.XREADGROUP_BLOCKING_SINGLE_V2);
-        RESP3MAPPING.put(RedisCommands.XREADGROUP_SINGLE, RedisCommands.XREADGROUP_SINGLE_V2);
-        RESP3MAPPING.put(RedisCommands.XREAD_BLOCKING_SINGLE, RedisCommands.XREAD_BLOCKING_SINGLE_V2);
-        RESP3MAPPING.put(RedisCommands.XREAD_SINGLE, RedisCommands.XREAD_SINGLE_V2);
-        RESP3MAPPING.put(RedisCommands.XREAD_BLOCKING, RedisCommands.XREAD_BLOCKING_V2);
-        RESP3MAPPING.put(RedisCommands.XREAD, RedisCommands.XREAD_V2);
-        RESP3MAPPING.put(RedisCommands.HRANDFIELD, RedisCommands.HRANDFIELD_V2);
-    }
-
-    public <R> RedisCommand<R> resp3(RedisCommand<R> command) {
-        if (isResp3()) {
-            return (RedisCommand<R>) RESP3MAPPING.getOrDefault(command, command);
-        }
-        return command;
-    }
-
-    public Map<String, ResponseEntry> getResponses() {
-        return responses;
-    }
-
-    public QueueTransferService getQueueTransferService() {
-        return queueTransferService;
-    }
-
-    public Codec getCodec(Codec codec) {
-        if (codec == null) {
-            return cfg.getCodec();
-        }
-        return codec;
-    }
-
-    private final Map<String, AdderEntry> addersUsage = new ConcurrentHashMap<>();
-
-    public Map<String, AdderEntry> getAddersUsage() {
-        return addersUsage;
-    }
-
-    private final Map<String, AtomicInteger> addersCounter = new ConcurrentHashMap<>();
-
-    public Map<String, AtomicInteger> getAddersCounter() {
-        return addersCounter;
-    }
-
-    private final MapResolver mapResolver = new MapResolver(this);
-
-    public MapResolver getLiveObjectMapResolver() {
-        return mapResolver;
-    }
-
-    public static final RLock DUMMY_LOCK = (RLock) Proxy.newProxyInstance(ServiceManager.class.getClassLoader(), new Class[] {RLock.class}, new InvocationHandler() {
-        @Override
-        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
-            if (method.getName().endsWith("lockAsync")) {
-                return new CompletableFutureWrapper<>((Void) null);
-            }
-            return null;
-        }
-    });
-
-    public void register(LockRenewalScheduler renewalScheduler) {
-        this.renewalScheduler = renewalScheduler;
-    }
-
-    public LockRenewalScheduler getRenewalScheduler() {
-        return renewalScheduler;
     }
 }

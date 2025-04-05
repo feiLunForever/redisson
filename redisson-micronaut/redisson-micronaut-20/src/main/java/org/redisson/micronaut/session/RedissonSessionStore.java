@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -245,7 +245,7 @@ public class RedissonSessionStore implements SessionStore<RedissonSession>, Patt
     }
 
     private RTopic getTopic(String name, Codec codec) {
-        PublishSubscribeService ss = ((Redisson) redisson).getCommandExecutor().getConnectionManager().getSubscribeService();
+        PublishSubscribeService ss = ((Redisson) redisson).getConnectionManager().getSubscribeService();
         if (ss.isShardingSupported()) {
             return redisson.getShardedTopic(name, codec);
         }

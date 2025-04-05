@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,7 +44,6 @@ public final class QueryOptions {
     private boolean explainScore;
     private String sortBy;
     private SortOrder sortOrder;
-    private boolean withCount;
     private Integer offset;
     private Integer count;
     private Map<String, Object> params = Collections.emptyMap();
@@ -135,11 +134,6 @@ public final class QueryOptions {
 
     public QueryOptions sortOrder(SortOrder sortOrder) {
         this.sortOrder = sortOrder;
-        return this;
-    }
-
-    public QueryOptions withCount(boolean withCount) {
-        this.withCount = withCount;
         return this;
     }
 
@@ -238,10 +232,6 @@ public final class QueryOptions {
 
     public String getSortBy() {
         return sortBy;
-    }
-
-    public boolean isWithCount() {
-        return withCount;
     }
 
     public Integer getOffset() {

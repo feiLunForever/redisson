@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import org.redisson.client.protocol.decoder.MapValueDecoder;
 import org.redisson.codec.BaseEventCodec;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.connection.MasterSlaveEntry;
-import org.redisson.connection.ServiceManager;
 import org.redisson.connection.decoder.MapGetAllDecoder;
 import org.redisson.iterator.RedissonBaseMapIterator;
 import org.redisson.jcache.JMutableEntry.Action;
@@ -50,10 +49,11 @@ import javax.cache.integration.*;
 import javax.cache.processor.EntryProcessor;
 import javax.cache.processor.EntryProcessorException;
 import javax.cache.processor.EntryProcessorResult;
-import java.net.URI;
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -70,19 +70,25 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
 
     final JCacheManager cacheManager;
     final JCacheConfiguration<K, V> config;
-    final ConcurrentMap<CacheEntryListenerConfiguration<K, V>, Map<Integer, String>> listeners = new ConcurrentHashMap<>();
+    private final ConcurrentMap<CacheEntryListenerConfiguration<K, V>, Map<Integer, String>> listeners = new ConcurrentHashMap<>();
     final Redisson redisson;
 
     private CacheLoader<K, V> cacheLoader;
     private CacheWriter<K, V> cacheWriter;
-    private AtomicBoolean closed = new AtomicBoolean();
+    private boolean closed;
     private boolean hasOwnRedisson;
 
     /*
      * No locking required in atomic execution mode.
      */
+    private static final RLock DUMMY_LOCK = (RLock) Proxy.newProxyInstance(JCache.class.getClassLoader(), new Class[] {RLock.class}, new InvocationHandler() {
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+            return null;
+        }
+    });
 
-    JCache(JCacheManager cacheManager, Redisson redisson, String name, JCacheConfiguration<K, V> config, boolean hasOwnRedisson) {
+    public JCache(JCacheManager cacheManager, Redisson redisson, String name, JCacheConfiguration<K, V> config, boolean hasOwnRedisson) {
         super(redisson.getConfig().getCodec(), redisson.getCommandExecutor(), name);
 
         this.hasOwnRedisson = hasOwnRedisson;
@@ -108,7 +114,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
     }
 
     void checkNotClosed() {
-        if (closed.get()) {
+        if (closed) {
             throw new IllegalStateException();
         }
     }
@@ -202,10 +208,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         return f.handle((r, e) -> {
             if (e != null) {
                 if (e instanceof CompletionException) {
-                    e = e.getCause();
-                }
-                if (e instanceof CacheException) {
-                    throw new CompletionException(e);
+                    throw (RuntimeException) e.getCause();
                 }
                 throw new CompletionException(new CacheException(e));
             }
@@ -263,10 +266,8 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
                         try {
                             V val = loadValue(key);
                             result.complete(val);
-                        } catch (CacheException ex) {
-                            result.completeExceptionally(ex);
                         } catch (Exception ex) {
-                            result.completeExceptionally(new CacheException(ex));
+                            result.completeExceptionally(ex);
                         }
                     });
                     return;
@@ -350,7 +351,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
                   + "end; "
 
                   + "return value; ",
-                 Arrays.asList(name, getTimeoutSetName(name)),
+                 Arrays.<Object>asList(name, getTimeoutSetName(name), getRemovedChannelName(name)),
                  accessTimeout, System.currentTimeMillis(), encodeMapKey(key));
         }
 
@@ -406,13 +407,8 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
             throw new CacheLoaderException(ex);
         }
         if (loaded != null) {
-            loaded = loaded.entrySet()
-                    .stream()
-                    .filter(e -> e.getValue() != null)
-                    .collect(Collectors.toMap(e -> e.getKey(), e -> e.getValue()));
-
             long startTime = currentNanoTime();
-            putAllValues(loaded);
+            putAll(loaded);
             cacheManager.getStatBean(this).addGetTime(currentNanoTime() - startTime);
         }
         return loaded;
@@ -437,7 +433,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         return value;
     }
 
-    <T, R> R write(String key, RedisCommand<T> command, Object... params) {
+    private <T, R> R write(String key, RedisCommand<T> command, Object... params) {
         RFuture<R> future = commandExecutor.writeAsync(key, command, params);
         try {
             return get(future);
@@ -1025,7 +1021,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
                                       + "redis.call('hdel', KEYS[1], key); "
                                       + "redis.call('zrem', KEYS[2], key); "
                                       + "local msg = struct.pack('Lc0Lc0', string.len(key), key, string.len(value), value); "
-                                      + "redis.call('publish', KEYS[3], msg); "
+                                      + "redis.call('publish', KEYS[3], {key, value}); "
                                   + "elseif accessTimeout ~= '-1' then "
                                       + "redis.call('zadd', KEYS[2], accessTimeout, key); "
                                   + "end; "
@@ -1050,7 +1046,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         CompletableFuture<Map<K, V>> result = new CompletableFuture<>();
         res.whenComplete((r, ex) -> {
             if (ex != null) {
-                result.completeExceptionally(new CacheException(ex));
+                result.completeExceptionally(ex);
                 return;
             }
 
@@ -1071,14 +1067,13 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
                                 .collect(Collectors.toSet());
 
                         Map<K, V> loadedMap = loadValues(nullKeys);
-                        notNullEntries.putAll(loadedMap);
+                        r.putAll(loadedMap);
                     } catch (Exception exc) {
                         result.completeExceptionally(exc);
                         return;
                     }
                     cacheManager.getStatBean(this).addGetTime(currentNanoTime() - startTime);
-
-                    result.complete(notNullEntries);
+                    result.complete(r);
                 });
             } else {
                 cacheManager.getStatBean(this).addGetTime(currentNanoTime() - startTime);
@@ -1100,7 +1095,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         checkKey(key);
 
         String name = getRawName(key);
-        CompletionStage<Boolean> future = commandExecutor.evalReadAsync(name, codec, RedisCommands.EVAL_BOOLEAN,
+        RFuture<Boolean> future = commandExecutor.evalReadAsync(name, codec, RedisCommands.EVAL_BOOLEAN,
                   "if redis.call('hexists', KEYS[1], ARGV[2]) == 0 then "
                     + "return 0;"
                 + "end;"
@@ -1112,8 +1107,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
                 + "return 1;",
              Arrays.<Object>asList(name, getTimeoutSetName(name)),
              System.currentTimeMillis(), encodeMapKey(key));
-        future = handleException(future);
-        return new CompletableFutureWrapper<>(future);
+        return future;
     }
 
     @Override
@@ -1178,10 +1172,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
 
     RLock getLockedLock(K key) {
         if (atomicExecution) {
-            /*
-             * No locking is required in atomic execution mode.
-             */
-            return ServiceManager.DUMMY_LOCK;
+            return DUMMY_LOCK;
         }
 
         String lockName = getLockName(key);
@@ -2766,7 +2757,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         return oldValue;
     }
 
-    void incrementOldValueListenerCounter(String counterName) {
+    private void incrementOldValueListenerCounter(String counterName) {
         evalWrite(getRawName(), codec, RedisCommands.EVAL_INTEGER,
                 "return redis.call('incr', KEYS[1]);",
                 Arrays.<Object>asList(counterName));
@@ -2951,15 +2942,15 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         }
 
         RFuture<Long> future = removeValues(keys.toArray());
-        CompletionStage<Void> f = future.thenAccept(res -> {
+        CompletionStage<Void> f = future.thenApply(res -> {
             cacheManager.getStatBean(this).addRemovals(res);
             cacheManager.getStatBean(this).addRemoveTime(currentNanoTime() - startTime);
+            return null;
         });
-        f = handleException(f);
         return new CompletableFutureWrapper<>(f);
     }
 
-    MapScanResult<Object, Object> scanIterator(String name, RedisClient client, String startPos) {
+    MapScanResult<Object, Object> scanIterator(String name, RedisClient client, long startPos) {
         RFuture<MapScanResult<Object, Object>> f
             = commandExecutor.readAsync(client, name, codec, RedisCommands.HSCAN, name, startPos, "COUNT", 50);
         try {
@@ -2988,7 +2979,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
 
             @Override
             protected ScanResult<Map.Entry<Object, Object>> iterator(RedisClient client,
-                                                                     String nextIterPos) {
+                                                                     long nextIterPos) {
                 return JCache.this.scanIterator(JCache.this.getRawName(), client, nextIterPos);
             }
         };
@@ -3118,31 +3109,30 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         return cacheManager;
     }
 
-    URI getURI() {
-        return cacheManager.getURI();
-    }
-
     @Override
     public void close() {
         if (isClosed()) {
             return;
         }
 
-        if (closed.compareAndSet(false, true)) {
-            if (hasOwnRedisson) {
-                redisson.shutdown();
+        synchronized (cacheManager) {
+            if (!isClosed()) {
+                if (hasOwnRedisson) {
+                    redisson.shutdown();
+                }
+                cacheManager.closeCache(this);
+                for (CacheEntryListenerConfiguration<K, V> config : listeners.keySet()) {
+                    deregisterCacheEntryListener(config);
+                }
+
+                closed = true;
             }
-            cacheManager.closeCache(this);
-            for (CacheEntryListenerConfiguration<K, V> config : listeners.keySet()) {
-                deregisterCacheEntryListener(config);
-            }
-            redisson.getEvictionScheduler().remove(getRawName());
         }
     }
 
     @Override
     public boolean isClosed() {
-        return closed.get();
+        return closed;
     }
 
     @Override
@@ -3167,9 +3157,9 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         registerCacheEntryListener(cacheEntryListenerConfiguration, true);
     }
 
-    JCacheEventCodec.OSType osType;
+    private JCacheEventCodec.OSType osType;
 
-    void registerCacheEntryListener(CacheEntryListenerConfiguration<K, V> cacheEntryListenerConfiguration, boolean addToConfig) {
+    private void registerCacheEntryListener(CacheEntryListenerConfiguration<K, V> cacheEntryListenerConfiguration, boolean addToConfig) {
         if (osType == null) {
             RFuture<Map<String, String>> serverFuture = commandExecutor.readAsync((String) null, StringCodec.INSTANCE, RedisCommands.INFO_SERVER);
             String os = serverFuture.toCompletableFuture().join().get("os");
@@ -3296,7 +3286,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         }
     }
 
-    void sendSync(boolean sync, List<Object> msg) {
+    private void sendSync(boolean sync, List<Object> msg) {
         if (sync) {
             Object syncId = msg.get(msg.size() - 1);
             RSemaphore semaphore = redisson.getSemaphore(getSyncName(syncId));
@@ -3336,8 +3326,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
                 if (accessTimeout == 0) {
                     remove();
                 } else if (accessTimeout != -1) {
-                    String name = getRawName(entry.getKey());
-                    write(name, RedisCommands.ZADD_BOOL, getTimeoutSetName(name), accessTimeout, encodeMapKey(entry.getKey()));
+                    write(getRawName(), RedisCommands.ZADD_BOOL, getTimeoutSetName(), accessTimeout, encodeMapKey(entry.getKey()));
                 }
                 return je;
             }
@@ -3356,7 +3345,7 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
 
             @Override
             protected ScanResult<Map.Entry<Object, Object>> iterator(RedisClient client,
-                                                                     String nextIterPos) {
+                                                                     long nextIterPos) {
                 return JCache.this.scanIterator(JCache.this.getRawName(), client, nextIterPos);
             }
 

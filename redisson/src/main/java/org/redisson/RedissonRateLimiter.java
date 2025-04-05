@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import org.redisson.client.protocol.decoder.MultiDecoder;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.misc.CompletableFutureWrapper;
 
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -37,9 +36,9 @@ import java.util.concurrent.TimeUnit;
  * @author Nikita Koksharov
  *
  */
-public final class RedissonRateLimiter extends RedissonExpirable implements RRateLimiter {
+public class RedissonRateLimiter extends RedissonExpirable implements RRateLimiter {
 
-    RedissonRateLimiter(CommandAsyncExecutor commandExecutor, String name) {
+    public RedissonRateLimiter(CommandAsyncExecutor commandExecutor, String name) {
         super(commandExecutor, name);
     }
 
@@ -96,7 +95,7 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
 
     @Override
     public RFuture<Void> acquireAsync(long permits) {
-        CompletionStage<Void> f = tryAcquireAsync(permits, Duration.ofMillis(-1)).thenApply(res -> null);
+        CompletionStage<Void> f = tryAcquireAsync(permits, -1, null).thenApply(res -> null);
         return new CompletableFutureWrapper<>(f);
     }
 
@@ -109,28 +108,7 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
     public RFuture<Boolean> tryAcquireAsync(long timeout, TimeUnit unit) {
         return tryAcquireAsync(1, timeout, unit);
     }
-
-    @Override
-    public boolean tryAcquire(Duration timeout) {
-        return get(tryAcquireAsync(timeout));
-    }
-
-    @Override
-    public RFuture<Boolean> tryAcquireAsync(Duration timeout) {
-        return tryAcquireAsync(1, timeout);
-    }
-
-    @Override
-    public boolean tryAcquire(long permits, Duration timeout) {
-        return get(tryAcquireAsync(permits, timeout));
-    }
-
-    @Override
-    public RFuture<Boolean> tryAcquireAsync(long permits, Duration timeout) {
-        CompletableFuture<Boolean> f = tryAcquireAsync(permits, timeout.toMillis());
-        return new CompletableFutureWrapper<>(f);
-    }
-
+    
     @Override
     public boolean tryAcquire(long permits, long timeout, TimeUnit unit) {
         return get(tryAcquireAsync(permits, timeout, unit));
@@ -138,7 +116,12 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
     
     @Override
     public RFuture<Boolean> tryAcquireAsync(long permits, long timeout, TimeUnit unit) {
-        return tryAcquireAsync(permits, Duration.ofMillis(unit.toMillis(timeout)));
+        long timeoutInMillis = -1;
+        if (timeout >= 0) {
+            timeoutInMillis = unit.toMillis(timeout);
+        }
+        CompletableFuture<Boolean> f = tryAcquireAsync(permits, timeoutInMillis);
+        return new CompletableFutureWrapper<>(f);
     }
     
     private CompletableFuture<Boolean> tryAcquireAsync(long permits, long timeoutInMillis) {
@@ -151,7 +134,7 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
             
             if (timeoutInMillis == -1) {
                 CompletableFuture<Boolean> f = new CompletableFuture<>();
-                getServiceManager().newTimeout(t -> {
+                getServiceManager().getGroup().schedule(() -> {
                     CompletableFuture<Boolean> r = tryAcquireAsync(permits, timeoutInMillis);
                     commandExecutor.transfer(r, f);
                 }, delay, TimeUnit.MILLISECONDS);
@@ -166,12 +149,12 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
 
             CompletableFuture<Boolean> f = new CompletableFuture<>();
             if (remains < delay) {
-                getServiceManager().newTimeout(t -> {
+                getServiceManager().getGroup().schedule(() -> {
                     f.complete(false);
                 }, remains, TimeUnit.MILLISECONDS);
             } else {
                 long start = System.currentTimeMillis();
-                getServiceManager().newTimeout(t -> {
+                getServiceManager().getGroup().schedule(() -> {
                     long elapsed = System.currentTimeMillis() - start;
                     if (remains <= elapsed) {
                         f.complete(false);
@@ -202,7 +185,7 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
                   + "permitsName = KEYS[5];"
               + "end;"
 
-              + "assert(tonumber(rate) >= tonumber(ARGV[1]), 'Requested permits amount cannot exceed defined rate'); "
+              + "assert(tonumber(rate) >= tonumber(ARGV[1]), 'Requested permits amount could not exceed defined rate'); "
 
               + "local currentValue = redis.call('get', valueName); "
               + "local res;"
@@ -217,13 +200,7 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
                      + "if released > 0 then "
                           + "redis.call('zremrangebyscore', permitsName, 0, tonumber(ARGV[2]) - interval); "
                           + "if tonumber(currentValue) + released > tonumber(rate) then "
-                               + "local values = redis.call('zrange', permitsName, 0, -1); "
-                               + "local used = 0; "
-                               + "for i, v in ipairs(values) do "
-                                    + "local random, permits = struct.unpack('Bc0I', v);"
-                                    + "used = used + permits;"
-                               + "end; "
-                               + "currentValue = tonumber(rate) - used; "
+                               + "currentValue = tonumber(rate) - redis.call('zcard', permitsName); "
                           + "else "
                                + "currentValue = tonumber(currentValue) + released; "
                           + "end; "
@@ -245,17 +222,10 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
                      + "res = nil; "
               + "end;"
 
-              + "local keepAliveTime = redis.call('hget', KEYS[1], 'keepAliveTime'); "
-              + "if (keepAliveTime ~= false and tonumber(keepAliveTime) > 0) then "
-                    + "redis.call('pexpire', KEYS[1], keepAliveTime); "
-                    + "redis.call('pexpire', valueName, keepAliveTime); "
-                    + "redis.call('pexpire', permitsName, keepAliveTime); "
-              + "else "
-                    + "local ttl = redis.call('pttl', KEYS[1]); "
-                    + "if ttl > 0 then "
-                        + "redis.call('pexpire', valueName, ttl); "
-                        + "redis.call('pexpire', permitsName, ttl); "
-                    + "end; "
+              + "local ttl = redis.call('pttl', KEYS[1]); "
+              + "if ttl > 0 then "
+                  + "redis.call('pexpire', valueName, ttl); "
+                  + "redis.call('pexpire', permitsName, ttl); "
               + "end; "
               + "return res;",
                 Arrays.asList(getRawName(), getValueName(), getClientValueName(), getPermitsName(), getClientPermitsName()),
@@ -269,7 +239,11 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
 
     @Override
     public RFuture<Boolean> trySetRateAsync(RateType type, long rate, long rateInterval, RateIntervalUnit unit) {
-        return trySetRateAsync(type, rate, Duration.ofMillis(unit.toMillis(rateInterval)), Duration.ZERO);
+        return commandExecutor.evalWriteNoRetryAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                "redis.call('hsetnx', KEYS[1], 'rate', ARGV[1]);"
+              + "redis.call('hsetnx', KEYS[1], 'interval', ARGV[2]);"
+              + "return redis.call('hsetnx', KEYS[1], 'type', ARGV[3]);",
+                Collections.singletonList(getRawName()), rate, unit.toMillis(rateInterval), type.ordinal());
     }
 
     @Override
@@ -279,52 +253,6 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
 
     @Override
     public RFuture<Void> setRateAsync(RateType type, long rate, long rateInterval, RateIntervalUnit unit) {
-        return setRateAsync(type, rate, Duration.ofMillis(unit.toMillis(rateInterval)), Duration.ZERO);
-    }
-
-    @Override
-    public RFuture<Boolean> trySetRateAsync(RateType type, long rate, Duration rateInterval, Duration keepAliveTime) {
-        if (!keepAliveTime.equals(Duration.ZERO) && keepAliveTime.toMillis() < rateInterval.toMillis()) {
-            throw new IllegalArgumentException("The parameter keepAliveTime should be greater than or equal to rateInterval");
-        }
-        return commandExecutor.evalWriteNoRetryAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
-                    "redis.call('hsetnx', KEYS[1], 'rate', ARGV[1]);"
-                        + "redis.call('hsetnx', KEYS[1], 'interval', ARGV[2]);"
-                        + "redis.call('hsetnx', KEYS[1], 'keepAliveTime', ARGV[4]);"
-                        + "local res = redis.call('hsetnx', KEYS[1], 'type', ARGV[3]);"
-                        + "if res == 1 and tonumber(ARGV[4]) > 0 then "
-                            + "redis.call('pexpire', KEYS[1], ARGV[4]); "
-                        + "end; "
-                        + "return res;",
-                Collections.singletonList(getRawName()),
-                rate, rateInterval.toMillis(), type.ordinal(), keepAliveTime.toMillis());
-    }
-
-    @Override
-    public boolean trySetRate(RateType mode, long rate, Duration rateInterval, Duration keepAliveTime) {
-        return get(trySetRateAsync(mode, rate, rateInterval, keepAliveTime));
-    }
-
-    @Override
-    public RFuture<Boolean> trySetRateAsync(RateType mode, long rate, Duration rateInterval) {
-        return trySetRateAsync(mode, rate, rateInterval, Duration.ZERO);
-    }
-
-    @Override
-    public boolean trySetRate(RateType mode, long rate, Duration rateInterval) {
-        return get(trySetRateAsync(mode, rate, rateInterval));
-    }
-
-    @Override
-    public void setRate(RateType mode, long rate, Duration rateInterval, Duration keepAliveTime) {
-        get(setRateAsync(mode, rate, rateInterval, keepAliveTime));
-    }
-
-    @Override
-    public RFuture<Void> setRateAsync(RateType type, long rate, Duration rateInterval, Duration keepAliveTime) {
-        if (!keepAliveTime.isZero() && keepAliveTime.toMillis() < rateInterval.toMillis()) {
-            throw new IllegalArgumentException("The parameter keepAliveTime should be greater than or equal to rateInterval");
-        }
         return commandExecutor.evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
                 "local valueName = KEYS[2];"
                     + "local permitsName = KEYS[4];"
@@ -332,28 +260,13 @@ public final class RedissonRateLimiter extends RedissonExpirable implements RRat
                     + "    valueName = KEYS[3];"
                     + "    permitsName = KEYS[5];"
                     + "end "
-                        + "redis.call('hset', KEYS[1], 'rate', ARGV[1]);"
+                    +"redis.call('hset', KEYS[1], 'rate', ARGV[1]);"
                         + "redis.call('hset', KEYS[1], 'interval', ARGV[2]);"
                         + "redis.call('hset', KEYS[1], 'type', ARGV[3]);"
-                        + "redis.call('hset', KEYS[1], 'keepAliveTime', ARGV[4]);"
-                        + "if tonumber(ARGV[4]) > 0 then "
-                            + "redis.call('pexpire', KEYS[1], ARGV[4]); "
-                        + "end; "
                         + "redis.call('del', valueName, permitsName);",
-                Arrays.asList(getRawName(), getValueName(), getClientValueName(), getPermitsName(), getClientPermitsName()),
-                rate, rateInterval.toMillis(), type.ordinal(), keepAliveTime.toMillis());
+                Arrays.asList(getRawName(), getValueName(), getClientValueName(), getPermitsName(), getClientPermitsName()), rate, unit.toMillis(rateInterval), type.ordinal());
     }
-
-    @Override
-    public void setRate(RateType mode, long rate, Duration rateInterval) {
-        get(setRateAsync(mode, rate, rateInterval));
-    }
-
-    @Override
-    public RFuture<Void> setRateAsync(RateType mode, long rate, Duration rateInterval) {
-        return setRateAsync(mode, rate, rateInterval, Duration.ZERO);
-    }
-
+    
     private static final RedisCommand HGETALL = new RedisCommand("HGETALL", new MapEntriesDecoder(new MultiDecoder<RateLimiterConfig>() {
 
         @Override

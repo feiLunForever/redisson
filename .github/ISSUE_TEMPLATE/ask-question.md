@@ -8,5 +8,5 @@ assignees: ''
 ---
 
 <!--
-Upgrade to Redisson PRO https://redisson.pro with advanced features.
+Try Redisson PRO https://redisson.pro with with ultra-fast performance and support by SLA.
 -->

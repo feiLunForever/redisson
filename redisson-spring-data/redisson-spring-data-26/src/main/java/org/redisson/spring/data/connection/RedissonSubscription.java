@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,10 +42,10 @@ public class RedissonSubscription extends AbstractSubscription {
     private final CommandAsyncExecutor commandExecutor;
     private final PublishSubscribeService subscribeService;
 
-    public RedissonSubscription(CommandAsyncExecutor commandExecutor, MessageListener listener) {
+    public RedissonSubscription(CommandAsyncExecutor commandExecutor, PublishSubscribeService subscribeService, MessageListener listener) {
         super(listener, null, null);
         this.commandExecutor = commandExecutor;
-        this.subscribeService = commandExecutor.getConnectionManager().getSubscribeService();
+        this.subscribeService = subscribeService;
     }
 
     @Override
@@ -53,7 +53,7 @@ public class RedissonSubscription extends AbstractSubscription {
         List<CompletableFuture<?>> list = new ArrayList<>();
         Queue<byte[]> subscribed = new ConcurrentLinkedQueue<>();
         for (byte[] channel : channels) {
-            CompletableFuture<List<PubSubConnectionEntry>> f = subscribeService.subscribe(ByteArrayCodec.INSTANCE, new ChannelName(channel), new BaseRedisPubSubListener() {
+            CompletableFuture<PubSubConnectionEntry> f = subscribeService.subscribe(ByteArrayCodec.INSTANCE, new ChannelName(channel), new BaseRedisPubSubListener() {
                 @Override
                 public void onMessage(CharSequence ch, Object message) {
                     if (!Arrays.equals(((ChannelName) ch).getName(), channel)) {
@@ -66,15 +66,15 @@ public class RedissonSubscription extends AbstractSubscription {
                 }
 
                 @Override
-                public void onStatus(PubSubType type, CharSequence ch) {
+                public boolean onStatus(PubSubType type, CharSequence ch) {
                     if (!Arrays.equals(((ChannelName) ch).getName(), channel)) {
-                        return;
+                        return false;
                     }
 
                     if (getListener() instanceof SubscriptionListener) {
                         subscribed.add(channel);
                     }
-                    super.onStatus(type, ch);
+                    return super.onStatus(type, ch);
                 }
 
             });
@@ -120,15 +120,15 @@ public class RedissonSubscription extends AbstractSubscription {
                 }
 
                 @Override
-                public void onStatus(PubSubType type, CharSequence pattern) {
+                public boolean onStatus(PubSubType type, CharSequence pattern) {
                     if (!Arrays.equals(((ChannelName) pattern).getName(), channel)) {
-                        return;
+                        return false;
                     }
 
                     if (getListener() instanceof SubscriptionListener) {
                         subscribed.add(channel);
                     }
-                    super.onStatus(type, pattern);
+                    return super.onStatus(type, pattern);
                 }
             });
             list.add(f);

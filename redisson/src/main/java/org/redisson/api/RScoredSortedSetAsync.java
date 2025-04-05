@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1209,20 +1209,5 @@ public interface RScoredSortedSetAsync<V> extends RExpirableAsync, RSortableAsyn
      * @return length of diff
      */
     RFuture<Integer> diffAsync(String... names);
-
-    /**
-     * Adds object event listener
-     *
-     * @see org.redisson.api.listener.TrackingListener
-     * @see org.redisson.api.listener.ScoredSortedSetAddListener
-     * @see org.redisson.api.listener.ScoredSortedSetRemoveListener
-     * @see org.redisson.api.ExpiredObjectListener
-     * @see org.redisson.api.DeletedObjectListener
-     *
-     * @param listener object event listener
-     * @return listener id
-     */
-    @Override
-    RFuture<Integer> addListenerAsync(ObjectListener listener);
 
 }

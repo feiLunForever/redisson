@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,25 +46,25 @@ public class IndexInfoDecoder implements MultiDecoder<Object> {
             ii.setOptions((Map<String, Object>) result.get("index_options"));
             ii.setDefinition((Map<String, Object>) result.get("index_definition"));
             ii.setAttributes((List<Map<String, Object>>) result.get("attributes"));
-            ii.setDocs(toDouble(result, "num_docs"));
-            ii.setMaxDocId(toDouble(result, "max_doc_id"));
-            ii.setTerms(toDouble(result, "num_terms"));
-            ii.setRecords(toDouble(result, "num_records"));
-            ii.setInvertedSize(toDouble(result, "inverted_sz_mb"));
-            ii.setVectorIndexSize(toDouble(result, "vector_index_sz_mb"));
-            ii.setTotalInvertedIndexBlocks(toDouble(result, "total_inverted_index_blocks"));
-            ii.setOffsetVectorsSize(toDouble(result, "offset_vectors_sz_mb"));
-            ii.setDocTableSize(toDouble(result, "doc_table_size_mb"));
-            ii.setSortableValuesSize(toDouble(result, "sortable_values_size_mb"));
-            ii.setKeyTableSize(toDouble(result, "key_table_size_mb"));
-            ii.setRecordsPerDocAverage(toDouble(result, "records_per_doc_avg"));
-            ii.setBytesPerRecordAverage(toDouble(result, "bytes_per_record_avg"));
-            ii.setOffsetsPerTermAverage(toDouble(result, "offsets_per_term_avg"));
-            ii.setOffsetBitsPerRecordAverage(toDouble(result, "offset_bits_per_record_avg"));
+            ii.setDocs(toLong(result, "num_docs"));
+            ii.setMaxDocId(toLong(result, "max_doc_id"));
+            ii.setTerms(toLong(result, "num_terms"));
+            ii.setRecords(toLong(result, "num_records"));
+            ii.setInvertedSize(Double.valueOf(result.get("inverted_sz_mb").toString()));
+            ii.setVectorIndexSize(Double.valueOf(result.get("vector_index_sz_mb").toString()));
+            ii.setTotalInvertedIndexBlocks(Double.valueOf(result.get("total_inverted_index_blocks").toString()));
+            ii.setOffsetVectorsSize(Double.valueOf(result.get("offset_vectors_sz_mb").toString()));
+            ii.setDocTableSize(Double.valueOf(result.get("doc_table_size_mb").toString()));
+            ii.setSortableValuesSize(Double.valueOf(result.get("sortable_values_size_mb").toString()));
+            ii.setKeyTableSize(Double.valueOf(result.get("key_table_size_mb").toString()));
+            ii.setRecordsPerDocAverage(toLong(result, "records_per_doc_avg"));
+            ii.setBytesPerRecordAverage(toLong(result, "bytes_per_record_avg"));
+            ii.setOffsetsPerTermAverage(toLong(result, "offsets_per_term_avg"));
+            ii.setOffsetBitsPerRecordAverage(toLong(result, "offset_bits_per_record_avg"));
             ii.setHashIndexingFailures(toLong(result, "hash_indexing_failures"));
-            ii.setTotalIndexingTime(toDouble(result, "total_indexing_time"));
+            ii.setTotalIndexingTime(Double.valueOf(result.get("total_indexing_time").toString()));
             ii.setIndexing(toLong(result, "indexing"));
-            ii.setPercentIndexed(toDouble(result, "percent_indexed"));
+            ii.setPercentIndexed(toLong(result, "percent_indexed"));
             ii.setNumberOfUses(toLong(result, "number_of_uses"));
             ii.setGcStats((Map<String, Object>) result.get("gc_stats"));
             ii.setCursorStats((Map<String, Object>) result.get("cursor_stats"));
@@ -76,33 +76,9 @@ public class IndexInfoDecoder implements MultiDecoder<Object> {
     }
 
     private Long toLong(Map<String, Object> result, String prop) {
-        Object val = result.getOrDefault(prop, "nan");
-        String valstring = val.toString();
-        if (valstring.contains("nan") || valstring.contains("inf")) {
+        if (result.get(prop).toString().contains("nan")) {
             return 0L;
         }
-
-        if (val instanceof Double) {
-            Double d = (Double) val;
-            return d.longValue();
-        }
-
-        return Long.valueOf(valstring);
-    }
-
-    private Double toDouble(Map<String, Object> result, String prop) {
-        Object val = result.getOrDefault(prop, "nan");
-        String valstring = val.toString();
-        if (valstring.contains("nan")) {
-            return 0D;
-        } else if (valstring.contains("inf")) {
-            if (valstring.contains("-")) {
-                return Double.NEGATIVE_INFINITY;
-            } else {
-                return Double.POSITIVE_INFINITY;
-            }
-        }
-
-        return Double.valueOf(valstring);
+        return Long.valueOf(result.get(prop).toString());
     }
 }

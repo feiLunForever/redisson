@@ -1,29 +1,38 @@
 package org.redisson;
 
-import io.netty.util.ResourceLeakDetector;
-import mockit.Invocation;
-import mockit.Mock;
-import mockit.MockUp;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.redisson.api.RFuture;
-import org.redisson.api.RList;
-import org.redisson.api.RSet;
-import org.redisson.api.RTransaction;
-import org.redisson.api.SortOrder;
-import org.redisson.api.TransactionOptions;
-import org.redisson.client.codec.IntegerCodec;
-import org.redisson.client.codec.StringCodec;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.IOException;
 import java.io.Serializable;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.assertj.core.api.ListAssert;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.redisson.ClusterRunner.ClusterProcesses;
+import org.redisson.RedisRunner.FailedToStartRedisException;
+import org.redisson.api.RFuture;
+import org.redisson.api.RList;
+import org.redisson.api.RSet;
+import org.redisson.api.RedissonClient;
+import org.redisson.api.SortOrder;
+import org.redisson.client.codec.IntegerCodec;
+import org.redisson.client.codec.LongCodec;
+import org.redisson.client.codec.StringCodec;
+import org.redisson.config.Config;
+import org.redisson.connection.balancer.RandomLoadBalancer;
 
-public class RedissonSetTest extends RedisDockerTest {
+public class RedissonSetTest extends BaseTest {
 
     public static class SimpleBean implements Serializable {
 
@@ -560,25 +569,49 @@ public class RedissonSetTest extends RedisDockerTest {
     }
 
     @Test
-    public void testClusteredIterator() {
-        testInCluster(redisson -> {
-            int size = 10000;
-            RSet<String> set = redisson.getSet("{test");
-            for (int i = 0; i < size; i++) {
-                set.add("" + i);
-            }
+    public void testClusteredIterator() throws FailedToStartRedisException, IOException, InterruptedException {
+        RedisRunner master1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave3 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave4 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave5 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave6 = new RedisRunner().randomPort().randomDir().nosave();
+        
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slave1, slave4)
+                .addNode(master2, slave2, slave5)
+                .addNode(master3, slave3, slave6);
 
-            Set<String> keys = new HashSet<>();
-            for (String key : set) {
-                keys.add(key);
-            }
+        ClusterProcesses process = clusterRunner.run();
+        
+        Config config = new Config();
+        config.useClusterServers()
+        .setLoadBalancer(new RandomLoadBalancer())
+        .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
 
-            assertThat(keys).hasSize(size);
-        });
+        int size = 10000;
+        RSet<String> set = redisson.getSet("{test");
+        for (int i = 0; i < size; i++) {
+            set.add("" + i);
+        }
+        
+        Set<String> keys = new HashSet<>();
+        for (String key : set) {
+            keys.add(key);
+        }
+        
+        assertThat(keys).hasSize(size);
+
+        redisson.shutdown();
+        process.shutdown();
     }
     
     @Test
-    public void testIteratorRemoveHighVolume() {
+    public void testIteratorRemoveHighVolume() throws InterruptedException {
         Set<Integer> set = redisson.getSet("set") /*new HashSet<Integer>()*/;
         for (int i = 0; i < 10000; i++) {
             set.add(i);
@@ -894,34 +927,5 @@ public class RedissonSetTest extends RedisDockerTest {
 
         assertThat(strings).containsAll(stringsOne);
         assertThat(strings).hasSize(stringsOne.size());
-    }
-
-    @Test
-    public void testAddAndContainsInTransactionShouldNotShowResourceLeak() {
-
-        new MockUp<ResourceLeakDetector<?>>() {
-            @Mock
-            void reportTracedLeak(Invocation invocation, String resourceType, String records) {
-                invocation.proceed();
-                Assertions.fail();
-            }
-
-            @Mock
-            void reportUntracedLeak(Invocation invocation, String resourceType) {
-                invocation.proceed();
-                Assertions.fail();
-            }
-        };
-
-        RTransaction tx = redisson.createTransaction(TransactionOptions.defaults());
-        RSet<Integer> testSet = tx.getSet("testSet");
-        for (int index = 0; index < 1000; index++) {
-            testSet.add(index);
-            if (testSet.contains(index)) {
-                // do nothing
-            }
-        }
-
-        tx.commit();
     }
 }

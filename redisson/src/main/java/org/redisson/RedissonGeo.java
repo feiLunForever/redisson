@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -192,8 +192,8 @@ public class RedissonGeo<V> extends RedissonScoredSortedSet<V> implements RGeo<V
         for (Object member : members) {
             encode(params, member);
         }
-        RedisCommand<Map<Object, Object>> command = new RedisCommand<>("GEOHASH",
-                new MapGetAllDecoder(Arrays.asList(members), 0));
+        RedisCommand<Map<Object, Object>> command = new RedisCommand<Map<Object, Object>>("GEOHASH",
+                new MapGetAllDecoder((List<Object>) Arrays.asList(members), 0));
         return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, command, params.toArray());
     }
 

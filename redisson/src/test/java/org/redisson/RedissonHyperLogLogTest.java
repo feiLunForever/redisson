@@ -6,7 +6,7 @@ import org.redisson.api.RHyperLogLog;
 
 import java.util.Arrays;
 
-public class RedissonHyperLogLogTest extends RedisDockerTest {
+public class RedissonHyperLogLogTest extends BaseTest {
 
     @Test
     public void testAddAll() {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import org.redisson.client.codec.Codec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -33,7 +32,7 @@ import java.util.Map;
 public class AutoClaimDecoder implements MultiDecoder<Object> {
 
     @Override
-    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state, long size) {
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
         return new StreamIdDecoder();
     }
 
@@ -42,13 +41,9 @@ public class AutoClaimDecoder implements MultiDecoder<Object> {
         if (parts.isEmpty()) {
             return null;            
         }
-
+        
         Map<StreamMessageId, Map<Object, Object>> maps = (Map<StreamMessageId, Map<Object, Object>>) parts.get(1);
-        List<StreamMessageId> deletedIds = Collections.emptyList();
-        if (parts.size() == 3) {
-            deletedIds = (List<StreamMessageId>) parts.get(2);
-        }
-        return new AutoClaimResult((StreamMessageId) parts.get(0), maps, deletedIds);
+        return new AutoClaimResult((StreamMessageId) parts.get(0), maps);
     }
 
 }

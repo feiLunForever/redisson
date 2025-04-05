@@ -1,13 +1,12 @@
 package org.redisson.tomcat;
 
+import java.net.MalformedURLException;
+
 import jakarta.servlet.ServletException;
-import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.startup.Tomcat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.net.MalformedURLException;
 
 public class TomcatServer {
     
@@ -17,9 +16,6 @@ public class TomcatServer {
 
     private static final Logger LOG = LoggerFactory.getLogger(TomcatServer.class);
     private static final boolean isInfo = LOG.isInfoEnabled();
-
-    private final Context c;
-    private RedissonSessionManager sessionManager;
 
     public TomcatServer(String contextPath, int port, String appBase) throws MalformedURLException, ServletException {
         if(contextPath == null || appBase == null || appBase.length() == 0) {
@@ -33,17 +29,16 @@ public class TomcatServer {
         tomcat.setPort(port);
         tomcat.getHost().setAppBase(".");
 
-        c = tomcat.addWebapp(contextPath, appBase + "/webapp");
+        tomcat.addWebapp(contextPath, appBase + "/webapp");
     }
 
     /**
      * Start the tomcat embedded server
      * @throws InterruptedException 
      */
-    public void start() throws LifecycleException {
+    public void start() throws LifecycleException, InterruptedException {
         tomcat.start();
         tomcat.getConnector();
-        sessionManager = (RedissonSessionManager) c.getManager();
         isRunning = true;
     }
 
@@ -68,7 +63,4 @@ public class TomcatServer {
         return isRunning;
     }
 
-    public RedissonSessionManager getSessionManager() {
-        return sessionManager;
-    }
 }

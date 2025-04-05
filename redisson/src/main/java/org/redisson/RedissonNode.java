@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package org.redisson;
 
 import io.netty.buffer.ByteBufUtil;
 import org.redisson.api.RExecutorService;
-import org.redisson.api.RScheduledExecutorService;
 import org.redisson.api.RedissonClient;
 import org.redisson.api.WorkerOptions;
 import org.redisson.client.RedisConnection;
@@ -31,9 +30,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.HashSet;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -46,9 +43,8 @@ import java.util.concurrent.TimeUnit;
 public final class RedissonNode {
 
     private static final Logger log = LoggerFactory.getLogger(RedissonNode.class);
-
-    private final Set<RExecutorService> executors = new HashSet<>();
-    private final boolean hasRedissonInstance;
+    
+    private boolean hasRedissonInstance;
     private RedissonClient redisson;
     private final RedissonNodeConfig config;
     private final String id;
@@ -65,13 +61,11 @@ public final class RedissonNode {
     public RedissonClient getRedisson() {
         return redisson;
     }
-
-    @Deprecated
+    
     public InetSocketAddress getLocalAddress() {
         return localAddress;
     }
-
-    @Deprecated
+    
     public InetSocketAddress getRemoteAddress() {
         return remoteAddress;
     }
@@ -122,15 +116,7 @@ public final class RedissonNode {
      */
     public void shutdown() {
         if (hasRedissonInstance) {
-            try {
-                for (RExecutorService executor : executors) {
-                    executor.shutdown();
-                }
-            } catch (Exception e){
-                // skip
-            }
-
-            redisson.shutdown(0, 15, TimeUnit.SECONDS);
+            redisson.shutdown(0, 15, TimeUnit.MINUTES);
             log.info("Redisson node has been shutdown successfully");
         }
     }
@@ -158,10 +144,8 @@ public final class RedissonNode {
             WorkerOptions options = WorkerOptions.defaults()
                                                 .workers(mapReduceWorkers)
                                                 .beanFactory(config.getBeanFactory());
-
-            RScheduledExecutorService e = redisson.getExecutorService(RExecutorService.MAPREDUCE_NAME);
-            e.registerWorkers(options);
-            executors.add(e);
+            
+            redisson.getExecutorService(RExecutorService.MAPREDUCE_NAME).registerWorkers(options);
             log.info("{} map reduce worker(s) registered", mapReduceWorkers);
         }
         
@@ -172,10 +156,8 @@ public final class RedissonNode {
             WorkerOptions options = WorkerOptions.defaults()
                                                 .workers(workers)
                                                 .beanFactory(config.getBeanFactory());
-
-            RScheduledExecutorService e = redisson.getExecutorService(name);
-            e.registerWorkers(options);
-            executors.add(e);
+            
+            redisson.getExecutorService(name).registerWorkers(options);
             log.info("{} worker(s) registered for ExecutorService with '{}' name", workers, name);
         }
 
@@ -183,9 +165,9 @@ public final class RedissonNode {
     }
 
     private void retrieveAddresses() {
-        ConnectionManager connectionManager = ((Redisson) redisson).getCommandExecutor().getConnectionManager();
+        ConnectionManager connectionManager = ((Redisson) redisson).getConnectionManager();
         for (MasterSlaveEntry entry : connectionManager.getEntrySet()) {
-            CompletionStage<RedisConnection> readFuture = entry.connectionReadOp(null, false);
+            CompletionStage<RedisConnection> readFuture = entry.connectionReadOp(null);
             RedisConnection readConnection = null;
             try {
                 readConnection = readFuture.toCompletableFuture().get(connectionManager.getServiceManager().getConfig().getConnectTimeout(), TimeUnit.MILLISECONDS);

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,7 +31,6 @@ import org.redisson.client.RedisClient;
 import org.redisson.client.RedisClientConfig;
 import org.redisson.client.RedisConnection;
 import org.redisson.config.SslProvider;
-import org.redisson.config.SslVerificationMode;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLEngine;
@@ -41,7 +40,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.security.GeneralSecurityException;
 import java.security.KeyStore;
-import java.security.KeyStoreException;
 import java.util.Arrays;
 
 /**
@@ -119,17 +117,14 @@ public class RedisChannelInitializer extends ChannelInitializer<Channel> {
             provided = io.netty.handler.ssl.SslProvider.OPENSSL;
         }
         
-        SslContextBuilder sslContextBuilder = SslContextBuilder.forClient()
-                                                    .sslProvider(provided)
-                                                    .keyStoreType(config.getSslKeystoreType());
-
+        SslContextBuilder sslContextBuilder = SslContextBuilder.forClient().sslProvider(provided);
         sslContextBuilder.protocols(config.getSslProtocols());
         if (config.getSslCiphers() != null) {
             sslContextBuilder.ciphers(Arrays.asList(config.getSslCiphers()));
         }
 
         if (config.getSslTruststore() != null) {
-            KeyStore keyStore = getKeyStore(config);
+            KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
             
             InputStream stream = config.getSslTruststore().openStream();
             try {
@@ -151,7 +146,7 @@ public class RedisChannelInitializer extends ChannelInitializer<Channel> {
         }
 
         if (config.getSslKeystore() != null){
-            KeyStore keyStore = getKeyStore(config);
+            KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
             
             InputStream stream = config.getSslKeystore().openStream();
             char[] password = null;
@@ -173,11 +168,8 @@ public class RedisChannelInitializer extends ChannelInitializer<Channel> {
         }
         
         SSLParameters sslParams = new SSLParameters();
-
-        if (config.getSslVerificationMode() == SslVerificationMode.STRICT) {
+        if (config.isSslEnableEndpointIdentification()) {
             sslParams.setEndpointIdentificationAlgorithm("HTTPS");
-        } else if (config.getSslVerificationMode() == SslVerificationMode.CA_ONLY) {
-            sslParams.setEndpointIdentificationAlgorithm("");
         } else {
             if (config.getSslTruststore() == null) {
                 sslContextBuilder.trustManager(InsecureTrustManagerFactory.INSTANCE);
@@ -189,7 +181,7 @@ public class RedisChannelInitializer extends ChannelInitializer<Channel> {
         if (hostname == null || NetUtil.createByteArrayFromIpAddressString(hostname) != null) {
             hostname = config.getAddress().getHost();
         }
-
+        
         SSLEngine sslEngine = sslContext.newEngine(ch.alloc(), hostname, config.getAddress().getPort());
         sslEngine.setSSLParameters(sslParams);
         
@@ -225,12 +217,5 @@ public class RedisChannelInitializer extends ChannelInitializer<Channel> {
 
         });
     }
-
-    private KeyStore getKeyStore(RedisClientConfig config) throws KeyStoreException {
-        if (config.getSslKeystoreType() != null) {
-            return KeyStore.getInstance(config.getSslKeystoreType());
-        }
-        return KeyStore.getInstance(KeyStore.getDefaultType());
-    }
-
+    
 }

@@ -13,7 +13,6 @@ import java.io.IOException;
  * @author Nikita Koksharov
  *
  */
-@Deprecated
 public class MarshallingCodecTest {
 
     public static class NonSerializable {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,24 @@
  */
 package org.redisson.client.codec;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
-import io.netty.util.CharsetUtil;
+import java.io.IOException;
+import java.nio.charset.Charset;
+
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.Encoder;
-import org.redisson.codec.JsonCodec;
 
-import java.io.IOException;
-import java.nio.charset.Charset;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.util.CharsetUtil;
+import org.redisson.codec.JsonCodec;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public class StringCodec extends BaseCodec implements JsonCodec {
+public class StringCodec extends BaseCodec implements JsonCodec<String > {
 
     public static final StringCodec INSTANCE = new StringCodec();
 
@@ -81,13 +82,4 @@ public class StringCodec extends BaseCodec implements JsonCodec {
         return encoder;
     }
 
-    @Override
-    public Encoder getEncoder() {
-        return encoder;
-    }
-
-    @Override
-    public Decoder<Object> getDecoder() {
-        return decoder;
-    }
 }

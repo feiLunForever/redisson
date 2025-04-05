@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -58,8 +59,8 @@ public class RedissonExecutorRemoteService extends RedissonRemoteService {
     private List<TaskSuccessListener> successListeners;
 
     public RedissonExecutorRemoteService(Codec codec, String name,
-                                         CommandAsyncExecutor commandExecutor, String executorId) {
-        super(codec, name, commandExecutor, executorId);
+                                         CommandAsyncExecutor commandExecutor, String executorId, ConcurrentMap<String, ResponseEntry> responses) {
+        super(codec, name, commandExecutor, executorId, responses);
     }
 
     @Override
@@ -97,7 +98,7 @@ public class RedissonExecutorRemoteService extends RedissonRemoteService {
         startedListeners.forEach(l -> l.onStarted(request.getId()));
 
         if (taskTimeout > 0) {
-            commandExecutor.getServiceManager().newTimeout(t -> {
+            commandExecutor.getServiceManager().getGroup().schedule(() -> {
                 cancelRequestFuture.complete(new RemoteServiceCancelRequest(true, false));
             }, taskTimeout, TimeUnit.MILLISECONDS);
         }

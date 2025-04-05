@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.redisson.api;
 
-import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import reactor.core.publisher.Mono;
@@ -40,15 +39,6 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
      * @return permit id
      */
     Mono<String> acquire();
-
-    /**
-     * Acquires defined amount of <code>permits</code>.
-     * Waits if necessary until all permits became available.
-     *
-     * @param permits the number of permits to acquire
-     * @return permits ids
-     */
-    Mono<List<String>> acquire(int permits);
     
     /**
      * Acquires a permit with defined <code>leaseTime</code> and return its id.
@@ -59,17 +49,6 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
      * @return permit id
      */
     Mono<String> acquire(long leaseTime, TimeUnit unit);
-
-    /**
-     * Acquires defined amount of <code>permits</code> with defined <code>leaseTime</code> and returns ids.
-     * Waits if necessary until all permits became available.
-     *
-     * @param permits the number of permits to acquire
-     * @param leaseTime permits lease time
-     * @param unit time unit
-     * @return permits ids
-     */
-    Mono<List<String>> acquire(int permits, long leaseTime, TimeUnit unit);
     
     /**
      * Tries to acquire currently available permit and return its id.
@@ -78,15 +57,6 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
      *         otherwise
      */
     Mono<String> tryAcquire();
-
-    /**
-     * Tries to acquire defined amount of currently available <code>permits</code> and returns ids.
-     *
-     * @param permits the number of permits to acquire
-     * @return permits ids if permits were acquired and empty collection
-     *         otherwise
-     */
-    Mono<List<String>> tryAcquire(int permits);
 
     /**
      * Tries to acquire currently available permit and return its id.
@@ -111,20 +81,6 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
      *         if the waiting time elapsed before a permit was acquired
      */
     Mono<String> tryAcquire(long waitTime, long leaseTime, TimeUnit unit);
-    
-    /**
-     * Tries to acquire defined amount of currently available <code>permits</code>
-     * with defined <code>leaseTime</code> and return their ids.
-     * Waits up to defined <code>waitTime</code> if necessary until enough permits became available.
-     * 
-     * @param permits the number of permits to acquire
-     * @param waitTime the maximum time to wait
-     * @param leaseTime permits lease time, use -1 to make them permanent
-     * @param unit the time unit
-     * @return permits ids if permits were acquired and empty collection
-     *         if the waiting time elapsed before permits were acquired
-     */
-    Mono<List<String>> tryAcquire(int permits, long waitTime, long leaseTime, TimeUnit unit);
 
     /**
      * Tries to release permit by its id.
@@ -136,14 +92,6 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
     Mono<Boolean> tryRelease(String permitId);
 
     /**
-     * Tries to release permits by their ids.
-     *
-     * @param permitsIds permits ids
-     * @return amount of released permits
-     */
-    Mono<Integer> tryRelease(List<String> permitsIds);
-    
-    /**
      * Releases a permit by its id. Increases the number of available permits.
      * Throws an exception if permit id doesn't exist or has already been released.
      * 
@@ -151,15 +99,6 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
      * @return void
      */
     Mono<Void> release(String permitId);
-    
-    /**
-     * Releases a permits by their ids. Increases the number of available permits.
-     * Throws an exception if permit id doesn't exist or has already been released.
-     *
-     * @param permitsIds - permits ids
-     * @return void
-     */
-    Mono<Void> release(List<String> permitsIds);
 
     /**
      * Returns amount of available permits.
@@ -216,14 +155,5 @@ public interface RPermitExpirableSemaphoreReactive extends RExpirableReactive {
      * @return <code>true</code> if permits has been updated successfully, otherwise <code>false</code>.
      */
     Mono<Boolean> updateLeaseTime(String permitId, long leaseTime, TimeUnit unit);
-    
-    /**
-     * Returns lease time of the permitId
-     *
-     * @param permitId permit id
-     * @return lease time in millis or -1 if no lease time specified
-     * @throws IllegalArgumentException if permit id doesn't exist or has already been released.
-     */
-    Mono<Long> getLeaseTime(String permitId);
     
 }

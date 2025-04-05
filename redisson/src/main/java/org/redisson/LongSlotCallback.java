@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,7 @@
  */
 package org.redisson;
 
-import java.util.Collection;
-import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  *
@@ -25,27 +24,15 @@ import java.util.List;
  */
 public class LongSlotCallback implements SlotCallback<Long, Long> {
 
-    private final Object[] params;
+    private final AtomicLong results = new AtomicLong();
 
-    public LongSlotCallback() {
-        this(null);
-    }
-
-    public LongSlotCallback(Object[] params) {
-        this.params = params;
+    @Override
+    public void onSlotResult(Long result) {
+        results.addAndGet(result);
     }
 
     @Override
-    public Long onResult(Collection<Long> result) {
-        return result.stream().mapToLong(r -> r).sum();
+    public Long onFinish() {
+        return results.get();
     }
-
-    @Override
-    public Object[] createParams(List<Object> params) {
-        if (this.params != null) {
-            return this.params;
-        }
-        return SlotCallback.super.createParams(params);
-    }
-
 }

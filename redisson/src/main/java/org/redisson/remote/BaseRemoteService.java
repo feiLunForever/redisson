@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,7 @@ import io.netty.buffer.Unpooled;
 import io.netty.util.CharsetUtil;
 import io.netty.util.Timeout;
 import io.netty.util.TimerTask;
-import org.redisson.RedissonBlockingQueue;
 import org.redisson.RedissonMap;
-import org.redisson.api.RBlockingQueue;
 import org.redisson.api.RFuture;
 import org.redisson.api.RMap;
 import org.redisson.api.RemoteInvocationOptions;
@@ -65,12 +63,14 @@ public abstract class BaseRemoteService {
     protected final String cancelRequestMapName;
     protected final String cancelResponseMapName;
     protected final String responseQueueName;
+    private final ConcurrentMap<String, ResponseEntry> responses;
 
-    public BaseRemoteService(Codec codec, String name, CommandAsyncExecutor commandExecutor, String executorId) {
-        this.codec = commandExecutor.getServiceManager().getCodec(codec);
+    public BaseRemoteService(Codec codec, String name, CommandAsyncExecutor commandExecutor, String executorId, ConcurrentMap<String, ResponseEntry> responses) {
+        this.codec = codec;
         this.name = commandExecutor.getServiceManager().getConfig().getNameMapper().map(name);
         this.commandExecutor = commandExecutor;
         this.executorId = executorId;
+        this.responses = responses;
         this.cancelRequestMapName = "{" + name + ":remote" + "}:cancel-request";
         this.cancelResponseMapName = "{" + name + ":remote" + "}:cancel-response";
         this.responseQueueName = getResponseQueueName(executorId);
@@ -115,27 +115,24 @@ public abstract class BaseRemoteService {
         for (Annotation annotation : remoteInterface.getAnnotations()) {
             if (annotation.annotationType() == RRemoteAsync.class) {
                 Class<T> syncInterface = (Class<T>) ((RRemoteAsync) annotation).value();
-                AsyncRemoteProxy proxy = new AsyncRemoteProxy(commandExecutor, name, responseQueueName,
-                        codec, executorId, cancelRequestMapName, this);
+                AsyncRemoteProxy proxy = new AsyncRemoteProxy(commandExecutor, name, responseQueueName, responses, codec, executorId, cancelRequestMapName, this);
                 return proxy.create(remoteInterface, options, syncInterface);
             }
 
             if (annotation.annotationType() == RRemoteReactive.class) {
                 Class<T> syncInterface = (Class<T>) ((RRemoteReactive) annotation).value();
-                ReactiveRemoteProxy proxy = new ReactiveRemoteProxy(commandExecutor, name, responseQueueName,
-                        codec, executorId, cancelRequestMapName, this);
+                ReactiveRemoteProxy proxy = new ReactiveRemoteProxy(commandExecutor, name, responseQueueName, responses, codec, executorId, cancelRequestMapName, this);
                 return proxy.create(remoteInterface, options, syncInterface);
             }
 
             if (annotation.annotationType() == RRemoteRx.class) {
                 Class<T> syncInterface = (Class<T>) ((RRemoteRx) annotation).value();
-                RxRemoteProxy proxy = new RxRemoteProxy(commandExecutor, name, responseQueueName,
-                        codec, executorId, cancelRequestMapName, this);
+                RxRemoteProxy proxy = new RxRemoteProxy(commandExecutor, name, responseQueueName, responses, codec, executorId, cancelRequestMapName, this);
                 return proxy.create(remoteInterface, options, syncInterface);
             }
         }
 
-        SyncRemoteProxy proxy = new SyncRemoteProxy(commandExecutor, name, responseQueueName, codec, executorId, this);
+        SyncRemoteProxy proxy = new SyncRemoteProxy(commandExecutor, name, responseQueueName, responses, codec, executorId, this);
         return proxy.create(remoteInterface, options);
     }
 
@@ -186,19 +183,21 @@ public abstract class BaseRemoteService {
     protected abstract CompletableFuture<Boolean> removeAsync(String requestQueueName, String taskId);
 
     protected long[] getMethodSignature(Method method) {
-        return methodSignaturesCache.computeIfAbsent(method, m -> {
-            String str = Arrays.stream(m.getParameterTypes())
+        long[] result = methodSignaturesCache.get(method);
+        if (result == null) {
+            String str = Arrays.stream(method.getParameterTypes())
                                 .map(c -> c.getName())
                                 .collect(Collectors.joining());
             ByteBuf buf = Unpooled.copiedBuffer(str, CharsetUtil.UTF_8);
-            long[] result = Hash.hash128(buf);
+            result = Hash.hash128(buf);
             buf.release();
-            return result;
-        });
-    }
-
-    protected <V> RBlockingQueue<V> getBlockingQueue(String name, Codec codec) {
-        return new RedissonBlockingQueue<>(codec, commandExecutor, name);
+            long[] oldResult = methodSignaturesCache.putIfAbsent(method, result);
+            if (oldResult != null) {
+                return oldResult;
+            }
+        }
+        
+        return result;
     }
 
 }

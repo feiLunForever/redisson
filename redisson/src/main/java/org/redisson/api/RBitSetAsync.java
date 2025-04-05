@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -274,14 +274,6 @@ public interface RBitSetAsync extends RExpirableAsync {
      * @return <code>true</code> if bit set to one and <code>false</code> overwise.
      */
     RFuture<Boolean> getAsync(long bitIndex);
-    
-    /**
-     * Returns a boolean array where each element of the array corresponds to the query result of the input parameters.
-     *
-     * @param bitIndexes indexes of bit
-     * @return Returns a boolean array where each element of the array corresponds to the query result of the input parameters.
-     */
-    RFuture<boolean[]> getAsync(long... bitIndexes);
 
     /**
      * Set bit to one at specified bitIndex

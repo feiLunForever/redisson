@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.redisson.api.RMap;
 import org.redisson.api.RMapCache;
 import org.redisson.api.RedissonClient;
-import org.redisson.api.map.event.MapEntryListener;
 import org.redisson.client.codec.Codec;
 import org.springframework.beans.factory.BeanDefinitionStoreException;
 import org.springframework.beans.factory.InitializingBean;
@@ -269,10 +268,7 @@ public class RedissonSpringCacheManager implements CacheManager, ResourceLoaderA
         if (oldCache != null) {
             cache = oldCache;
         } else {
-            map.setMaxSize(config.getMaxSize(), config.getEvictionMode());
-            for (MapEntryListener listener : config.getListeners()) {
-                map.addListener(listener);
-            }
+            map.setMaxSize(config.getMaxSize());
         }
         return cache;
     }

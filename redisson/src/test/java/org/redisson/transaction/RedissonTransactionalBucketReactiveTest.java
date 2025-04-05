@@ -73,7 +73,7 @@ public class RedissonTransactionalBucketReactiveTest extends BaseReactiveTest {
     }
     
     @Test
-    public void testGetAndSet() throws InterruptedException {
+    public void testGetAndSet() {
         RBucketReactive<String> b = redisson.getBucket("test");
         sync(b.set("123"));
         
@@ -84,15 +84,13 @@ public class RedissonTransactionalBucketReactiveTest extends BaseReactiveTest {
         assertThat(sync(bucket.getAndSet("324"))).isEqualTo("0");
         
         sync(transaction.commit());
-
-        Thread.sleep(100);
-
+        
         assertThat(sync(redisson.getKeys().count())).isEqualTo(1);
         assertThat(sync(b.get())).isEqualTo("324");
     }
     
     @Test
-    public void testCompareAndSet() throws InterruptedException {
+    public void testCompareAndSet() {
         RBucketReactive<String> b = redisson.getBucket("test");
         sync(b.set("123"));
         
@@ -104,15 +102,13 @@ public class RedissonTransactionalBucketReactiveTest extends BaseReactiveTest {
         assertThat(sync(bucket.get())).isEqualTo("232");
         
         sync(transaction.commit());
-
-        Thread.sleep(100);
         
         assertThat(sync(redisson.getKeys().count())).isEqualTo(1);
         assertThat(sync(b.get())).isEqualTo("232");
     }
     
     @Test
-    public void testTrySet() throws InterruptedException {
+    public void testTrySet() {
         RBucketReactive<String> b = redisson.getBucket("test");
         sync(b.set("123"));
         
@@ -124,15 +120,13 @@ public class RedissonTransactionalBucketReactiveTest extends BaseReactiveTest {
         assertThat(sync(bucket.trySet("43"))).isFalse();
         
         sync(transaction.commit());
-
-        Thread.sleep(100);
-
+        
         assertThat(sync(redisson.getKeys().count())).isEqualTo(1);
         assertThat(sync(b.get())).isEqualTo("324");
     }
     
     @Test
-    public void testGetAndRemove() throws InterruptedException {
+    public void testGetAndRemove() {
         RBucketReactive<String> m = redisson.getBucket("test");
         sync(m.set("123"));
         
@@ -146,9 +140,7 @@ public class RedissonTransactionalBucketReactiveTest extends BaseReactiveTest {
         assertThat(sync(set.getAndDelete())).isNull();
         
         sync(transaction.commit());
-
-        Thread.sleep(100);
-
+        
         assertThat(sync(redisson.getKeys().count())).isEqualTo(0);
         assertThat(sync(m.get())).isNull();
     }

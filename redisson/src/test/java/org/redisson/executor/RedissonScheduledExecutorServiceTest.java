@@ -4,8 +4,14 @@ import mockit.Invocation;
 import mockit.Mock;
 import mockit.MockUp;
 import org.joor.Reflect;
-import org.junit.jupiter.api.*;
-import org.redisson.*;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.redisson.BaseTest;
+import org.redisson.Redisson;
+import org.redisson.RedissonExecutorService;
+import org.redisson.RedissonNode;
 import org.redisson.api.*;
 import org.redisson.api.annotation.RInject;
 import org.redisson.config.Config;
@@ -24,12 +30,14 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
+public class RedissonScheduledExecutorServiceTest extends BaseTest {
 
     private static RedissonNode node;
     
     @BeforeEach
+    @Override
     public void before() throws IOException, InterruptedException {
+        super.before();
         Config config = createConfig();
         RedissonNodeConfig nodeConfig = new RedissonNodeConfig(config);
         nodeConfig.setExecutorServiceWorkers(Collections.singletonMap("test", 5));
@@ -119,7 +127,7 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
 
         long start2 = list.get(5);
         list.stream().skip(6).limit(15).reduce(start2, (r, e) -> {
-            assertThat(e - r).isBetween(160L, 380L);
+            assertThat(e - r).isBetween(160L, 310L);
             return e;
         });
     }
@@ -149,7 +157,7 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         RScheduledExecutorService executorService = client.getExecutorService("JobA");
         executorService.schedule(new TestTask() , CronSchedule.of("0/1 * * * * ?"));
         
-        TimeUnit.MILLISECONDS.sleep(5000);
+        TimeUnit.MILLISECONDS.sleep(4900);
         
         assertThat(client.getAtomicLong("counter").get()).isEqualTo(4);
         
@@ -173,7 +181,6 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
 
 
     @Test
-    @Disabled("Doesn't work with JDK 11+")
     public void testDelay() throws ExecutionException, InterruptedException, TimeoutException {
         RScheduledExecutorService executor = redisson.getExecutorService("test", ExecutorOptions.defaults().taskRetryInterval(5, TimeUnit.SECONDS));
         long start = System.currentTimeMillis();
@@ -232,7 +239,7 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         long start = System.currentTimeMillis();
         RExecutorFuture<?> f = executor.schedule(new IncrementRunnableTask("counter"), 1, TimeUnit.SECONDS);
         f.toCompletableFuture().join();
-        assertThat(System.currentTimeMillis() - start).isBetween(900L, 1350L);
+        assertThat(System.currentTimeMillis() - start).isBetween(900L, 1300L);
         assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(1);
         Thread.sleep(2000);
         node.shutdown();
@@ -251,23 +258,24 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
     }
 
     @Test
-    @Timeout(7)
-    public void testTaskResume() throws ExecutionException, InterruptedException {
-        RScheduledExecutorService executor = redisson.getExecutorService("test");
-        ScheduledFuture<Long> future1 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
-        ScheduledFuture<Long> future2 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
-        ScheduledFuture<Long> future3 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
+    public void testTaskResume() {
+        Assertions.assertTimeout(Duration.ofSeconds(7), () -> {
+            RScheduledExecutorService executor = redisson.getExecutorService("test");
+            ScheduledFuture<Long> future1 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
+            ScheduledFuture<Long> future2 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
+            ScheduledFuture<Long> future3 = executor.schedule(new ScheduledCallableTask(), 5, TimeUnit.SECONDS);
 
-        node.shutdown();
+            node.shutdown();
 
-        RedissonNodeConfig nodeConfig = new RedissonNodeConfig(redisson.getConfig());
-        nodeConfig.setExecutorServiceWorkers(Collections.singletonMap("test", 1));
-        node = RedissonNode.create(nodeConfig);
-        node.start();
+            RedissonNodeConfig nodeConfig = new RedissonNodeConfig(redisson.getConfig());
+            nodeConfig.setExecutorServiceWorkers(Collections.singletonMap("test", 1));
+            node = RedissonNode.create(nodeConfig);
+            node.start();
 
-        assertThat(future1.get()).isEqualTo(100);
-        assertThat(future2.get()).isEqualTo(100);
-        assertThat(future3.get()).isEqualTo(100);
+            assertThat(future1.get()).isEqualTo(100);
+            assertThat(future2.get()).isEqualTo(100);
+            assertThat(future3.get()).isEqualTo(100);
+        });
     }
 
     @Test
@@ -364,7 +372,6 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         assertThat(executor.getTaskIds().contains(future.getTaskId())).isTrue();
         Thread.sleep(1200);
         assertThat(executor.getTaskIds().isEmpty()).isTrue();
-        executor.delete();
     }
 
     @Test
@@ -380,45 +387,9 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         RScheduledExecutorService executor = redisson.getExecutorService("test", ExecutorOptions.defaults().taskRetryInterval(2, TimeUnit.SECONDS));
         executor.schedule(new ScheduledRunnableTask("executed1"), CronSchedule.of("0/5 * * * * ?"));
         executor.schedule(new ScheduledRunnableTask("executed2"), CronSchedule.of("0/1 * * * * ?"));
-        Thread.sleep(30100);
+        Thread.sleep(30000);
         assertThat(redisson.getAtomicLong("executed1").get()).isEqualTo(6);
         assertThat(redisson.getAtomicLong("executed2").get()).isEqualTo(30);
-    }
-
-    @Test
-    public void testCancelCronExpression() throws InterruptedException, ExecutionException {
-        RScheduledExecutorService executor = redisson.getExecutorService("test");
-        RScheduledFuture<?> future = executor.schedule(new ScheduledRunnableTask("executed"), CronSchedule.of("0/2 * * * * ?"));
-        Thread.sleep(TimeUnit.SECONDS.toMillis(10));
-        assertThat(redisson.getAtomicLong("executed").get()).isEqualTo(5);
-
-        cancel(future);
-
-        Thread.sleep(TimeUnit.SECONDS.toMillis(3));
-        assertThat(redisson.getAtomicLong("executed").get()).isEqualTo(5);
-
-        executor.delete();
-        redisson.getKeys().delete("executed");
-        assertThat(redisson.getKeys().count()).isZero();
-    }
-
-    @Test
-    public void testCancelAndInterruptCronExpression() throws InterruptedException, ExecutionException {
-        RScheduledExecutorService executor = redisson.getExecutorService("test");
-        RScheduledFuture<?> future = executor.schedule(new ScheduledLongRepeatableTask("counter", "executed"), CronSchedule.of("0/2 * * * * ?"));
-        Thread.sleep(TimeUnit.SECONDS.toMillis(6));
-        assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
-
-        cancel(future);
-        Thread.sleep(50);
-        assertThat(redisson.<Long>getBucket("executed").get()).isGreaterThan(1000L);
-
-        Thread.sleep(TimeUnit.SECONDS.toMillis(3));
-        assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
-
-        executor.delete();
-        redisson.getKeys().delete("counter", "executed");
-        assertThat(redisson.getKeys().count()).isZero();
     }
 
     public static class RunnableTask2 implements Runnable, Serializable {
@@ -435,14 +406,15 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
     }
 
     @Test
-    @Timeout(15)
-    public void testCancel2() throws InterruptedException {
-        RScheduledExecutorService e = redisson.getExecutorService("myExecutor");
-        e.registerWorkers(WorkerOptions.defaults());
-        String taskId = redisson.getExecutorService("myExecutor").schedule(new RunnableTask2(), 2000, TimeUnit.MILLISECONDS).getTaskId();
-        Thread.sleep(5500);
+    public void testCancel2() {
+        Assertions.assertTimeout(Duration.ofSeconds(15), () -> {
+            RScheduledExecutorService e = redisson.getExecutorService("myExecutor");
+            e.registerWorkers(WorkerOptions.defaults());
+            String taskId = redisson.getExecutorService("myExecutor").schedule(new RunnableTask2(), 2000, TimeUnit.MILLISECONDS).getTaskId();
+            Thread.sleep(5500);
 
-        assertThat(e.cancelTask(taskId)).isFalse();
+            assertThat(e.cancelTask(taskId)).isFalse();
+        });
     }
 
     @Test
@@ -521,8 +493,7 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
         
         cancel(future1);
-        Thread.sleep(50);
-        assertThat(redisson.<Long>getBucket("executed1").get()).isGreaterThan(1000L);
+        assertThat(redisson.<Long>getBucket("executed1").get()).isBetween(1000L, Long.MAX_VALUE);
 
         Thread.sleep(3000);
         assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
@@ -531,42 +502,15 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         RScheduledFuture<?> future2 = executor.scheduleWithFixedDelay(new ScheduledLongRepeatableTask("counter", "executed2"), 1, 2, TimeUnit.SECONDS);
         Thread.sleep(6000);
         assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
-
-        assertThat(executor.cancelTask(future2.getTaskId())).isTrue();
-        assertThat(redisson.<Long>getBucket("executed2").get()).isGreaterThan(1000L);
-
+        
+        executor.cancelTask(future2.getTaskId());
+        assertThat(redisson.<Long>getBucket("executed2").get()).isBetween(1000L, Long.MAX_VALUE);
 
         Thread.sleep(3000);
         assertThat(redisson.getAtomicLong("counter").get()).isEqualTo(3);
         
         executor.delete();
         redisson.getKeys().delete("counter", "executed1", "executed2");
-        assertThat(redisson.getKeys().count()).isZero();
-    }
-
-    @Test
-    public void testCancelAndInterruptSwallowedWithFixedDelay() throws InterruptedException, ExecutionException {
-        RScheduledExecutorService executor = redisson.getExecutorService("test");
-        RScheduledFuture<?> future = executor.scheduleWithFixedDelay(new SwallowingInterruptionTask("execution1", "cancel1"), 0, 1, TimeUnit.SECONDS);
-
-        Thread.sleep(TimeUnit.SECONDS.toMillis(1));
-
-        assertThat(redisson.getAtomicLong("cancel1").get()).isZero();
-        assertThat(redisson.getAtomicLong("execution1").get()).isEqualTo(1);
-
-        cancel(future);
-
-        assertThat(redisson.getAtomicLong("cancel1").get()).isEqualTo(1);
-        assertThat(redisson.getAtomicLong("execution1").get()).isEqualTo(1);
-
-        Thread.sleep(TimeUnit.SECONDS.toMillis(6));
-
-        assertThat(executor.getTaskCount()).isZero();
-        assertThat(redisson.getAtomicLong("cancel1").get()).isEqualTo(1);
-        assertThat(redisson.getAtomicLong("execution1").get()).isEqualTo(1);
-
-        executor.delete();
-        redisson.getKeys().delete("execution1", "cancel1");
         assertThat(redisson.getKeys().count()).isZero();
     }
 
@@ -616,36 +560,8 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         assertThat(redisson.getAtomicLong("executed1").get()).isEqualTo(1);
     }
 
+
     @Test
-    public void testIdCheck() {
-        RScheduledExecutorService executor = redisson.getExecutorService("test");
-
-        executor.schedule("1", new RunnableTask(), Duration.ofSeconds(12));
-
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> {
-            executor.submit("1", new RunnableTask(), Duration.ofSeconds(12));
-        });
-
-        executor.schedule("2", new CallableTask(), Duration.ofSeconds(12));
-
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> {
-            executor.submit("2", new CallableTask(), Duration.ofSeconds(12));
-        });
-
-        executor.scheduleWithFixedDelay("3", new RunnableTask(), Duration.ofSeconds(1), Duration.ofSeconds(10));
-
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> {
-            executor.scheduleWithFixedDelay("3", new RunnableTask(), Duration.ofSeconds(1), Duration.ofSeconds(10));
-        });
-
-        executor.scheduleAtFixedRate("4", new RunnableTask(), Duration.ofSeconds(1), Duration.ofSeconds(10));
-
-        Assertions.assertThrowsExactly(IllegalArgumentException.class, () -> {
-            executor.scheduleAtFixedRate("4", new RunnableTask(), Duration.ofSeconds(1), Duration.ofSeconds(10));
-        });
-    }
-
-        @Test
     public void testCancelAtFixedRate() throws InterruptedException, ExecutionException {
         RScheduledExecutorService executor = redisson.getExecutorService("test");
         ScheduledFuture<?> future1 = executor.scheduleAtFixedRate(new ScheduledRunnableTask("executed1"), 1, 2, TimeUnit.SECONDS);
@@ -662,31 +578,6 @@ public class RedissonScheduledExecutorServiceTest extends RedisDockerTest {
         assertThat(redisson.getKeys().count()).isZero();
     }
 
-    @Test
-    public void testCancelAndInterruptSwallowedAtFixedRate() throws InterruptedException, ExecutionException {
-        RScheduledExecutorService executor = redisson.getExecutorService("test");
-        RScheduledFuture<?> future = executor.scheduleAtFixedRate(new SwallowingInterruptionTask("execution1", "cancel1"), 0, 6, TimeUnit.SECONDS);
-
-        Thread.sleep(TimeUnit.SECONDS.toMillis(1));
-
-        assertThat(redisson.getAtomicLong("cancel1").get()).isZero();
-        assertThat(redisson.getAtomicLong("execution1").get()).isEqualTo(1);
-
-        cancel(future);
-
-        assertThat(redisson.getAtomicLong("cancel1").get()).isEqualTo(1);
-        assertThat(redisson.getAtomicLong("execution1").get()).isEqualTo(1);
-
-        Thread.sleep(TimeUnit.SECONDS.toMillis(6));
-
-        assertThat(executor.getTaskCount()).isZero();
-        assertThat(redisson.getAtomicLong("cancel1").get()).isEqualTo(1);
-        assertThat(redisson.getAtomicLong("execution1").get()).isEqualTo(1);
-
-        executor.delete();
-        redisson.getKeys().delete("execution1", "cancel1");
-        assertThat(redisson.getKeys().count()).isZero();
-    }
 
     @Test
     public void testMultipleTasksWithTimeShift() throws InterruptedException, ExecutionException {

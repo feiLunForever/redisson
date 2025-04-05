@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,28 +66,22 @@ public class RedisQueuedBatchExecutor<V, R> extends BaseRedisBatchExecutor<V, R>
     
     @Override
     public void execute() {
-        try {
-            if (source.getEntry() != null) {
-                Entry entry = aggregatedCommands.computeIfAbsent(source.getEntry(), k -> new Entry());
+        if (source.getEntry() != null) {
+            Entry entry = aggregatedCommands.computeIfAbsent(source.getEntry(), k -> new Entry());
 
-                if (!readOnlyMode) {
-                    entry.setReadOnlyMode(false);
-                }
-
-                Codec codecToUse = getCodec(codec);
-                BatchCommandData<V, R> commandData = new BatchCommandData<>(mainPromise, codecToUse, command, null, index.incrementAndGet());
-                entry.addCommand(commandData);
-            } else {
-                addBatchCommandData(null);
+            if (!readOnlyMode) {
+                entry.setReadOnlyMode(false);
             }
 
-            if (!readOnlyMode && this.options.getExecutionMode() == ExecutionMode.REDIS_READ_ATOMIC) {
-                throw new IllegalStateException("Data modification commands can't be used with queueStore=REDIS_READ_ATOMIC");
-            }
-        } catch (Exception e) {
-            free();
-            handleError(connectionFuture, e);
-            throw e;
+            Codec codecToUse = getCodec(codec);
+            BatchCommandData<V, R> commandData = new BatchCommandData<>(mainPromise, codecToUse, command, null, index.incrementAndGet());
+            entry.addCommand(commandData);
+        } else {
+            addBatchCommandData(null);
+        }
+
+        if (!readOnlyMode && this.options.getExecutionMode() == ExecutionMode.REDIS_READ_ATOMIC) {
+            throw new IllegalStateException("Data modification commands can't be used with queueStore=REDIS_READ_ATOMIC");
         }
 
         super.execute();
@@ -98,12 +92,9 @@ public class RedisQueuedBatchExecutor<V, R> extends BaseRedisBatchExecutor<V, R>
     protected void releaseConnection(CompletableFuture<R> attemptPromise, CompletableFuture<RedisConnection> connectionFuture) {
         if (RedisCommands.EXEC.getName().equals(command.getName())
                 || RedisCommands.DISCARD.getName().equals(command.getName())) {
-            if (attempt < attempts
-                    && attemptPromise.isCancelled()) {
-                return;
-            }
-
             super.releaseConnection(attemptPromise, connectionFuture);
+        } else {
+            connectionManager.getServiceManager().getShutdownLatch().release();
         }
     }
     
@@ -132,10 +123,6 @@ public class RedisQueuedBatchExecutor<V, R> extends BaseRedisBatchExecutor<V, R>
             sentPromise.completeExceptionally(cause);
             mainPromise.completeExceptionally(cause);
             if (executed.compareAndSet(false, true)) {
-                if (connectionFuture == null) {
-                    return;
-                }
-
                 RedisConnection c = getNow(connectionFuture);
                 if (c != null) {
                     c.forceFastReconnectAsync().whenComplete((res, e) -> {
@@ -169,8 +156,8 @@ public class RedisQueuedBatchExecutor<V, R> extends BaseRedisBatchExecutor<V, R>
             writeFuture = connection.send(new CommandsData(main, list, true, syncSlaves));
         } else {
             if (log.isDebugEnabled()) {
-                log.debug("acquired connection for {} from slot: {} using node: {}... {}",
-                            LogHelper.toString(command, params), source, connection.getRedisClient().getAddr(), connection);
+                log.debug("acquired connection for command {} and params {} from slot {} using node {}... {}",
+                        command, LogHelper.toString(params), source, connection.getRedisClient().getAddr(), connection);
             }
             
             if (connectionEntry.isFirstCommand()) {
@@ -196,16 +183,10 @@ public class RedisQueuedBatchExecutor<V, R> extends BaseRedisBatchExecutor<V, R>
                         list.add(new CommandData<>(new CompletableFuture<>(), codec, RedisCommands.CLIENT_REPLY, new Object[]{"ON"}));
                     }
                     if (options.getSyncSlaves() > 0) {
-                        BatchCommandData<?, ?> waitCommand;
-                        if (options.isSyncAOF()) {
-                            waitCommand = new BatchCommandData<>(RedisCommands.WAITAOF,
-                                    new Object[]{this.options.getSyncLocals(), this.options.getSyncSlaves(), this.options.getSyncTimeout()}, index.incrementAndGet());
-                        } else {
-                            waitCommand = new BatchCommandData<>(RedisCommands.WAIT,
-                                    new Object[] { this.options.getSyncSlaves(), this.options.getSyncTimeout() }, index.incrementAndGet());
-                        }
+                        BatchCommandData<?, ?> waitCommand = new BatchCommandData<>(RedisCommands.WAIT,
+                                new Object[] { this.options.getSyncSlaves(), this.options.getSyncTimeout() }, index.incrementAndGet());
                         list.add(waitCommand);
-                        entry.add(waitCommand);
+                        entry.getCommands().add(waitCommand);
                     }
 
                     CompletableFuture<Void> main = new CompletableFuture<>();
@@ -222,15 +203,13 @@ public class RedisQueuedBatchExecutor<V, R> extends BaseRedisBatchExecutor<V, R>
     }
 
     @Override
-    protected CompletableFuture<RedisConnection> getConnection(CompletableFuture<R> attemptPromise) {
+    protected CompletableFuture<RedisConnection> getConnection() {
         MasterSlaveEntry msEntry = getEntry();
         ConnectionEntry entry = connections.computeIfAbsent(msEntry, k -> {
-            if (!reuseConnection) {
-                if (this.options.getExecutionMode() == ExecutionMode.REDIS_WRITE_ATOMIC) {
-                    connectionFuture = connectionWriteOp(null, attemptPromise);
-                } else {
-                    connectionFuture = connectionReadOp(null, attemptPromise);
-                }
+            if (this.options.getExecutionMode() == ExecutionMode.REDIS_WRITE_ATOMIC) {
+                connectionFuture = connectionWriteOp(null);
+            } else {
+                connectionFuture = connectionReadOp(null);
             }
 
             ConnectionEntry ce = new ConnectionEntry(connectionFuture);

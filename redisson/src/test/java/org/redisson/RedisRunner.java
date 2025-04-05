@@ -32,7 +32,6 @@ import org.redisson.client.protocol.convertor.VoidReplayConvertor;
  *
  * @author Rui Gu (https://github.com/jackygurui)
  */
-@Deprecated
 public class RedisRunner {
 
     public enum REDIS_OPTIONS {
@@ -202,7 +201,7 @@ public class RedisRunner {
     private boolean randomDir = false;
     private ArrayList<String> bindAddr = new ArrayList<>();
     private int port = 6379;
-    private int retryCount = 10;
+    private int retryCount = Integer.MAX_VALUE;
     private boolean randomPort = false;
     private String sentinelFile;
     private String clusterFile;
@@ -295,16 +294,7 @@ public class RedisRunner {
             throw new FailedToStartRedisException();
         }
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (RedissonRuntimeEnvironment.isWindows
-                    && RedissonRuntimeEnvironment.redisBinaryPath.contains("cmd")) {
-                try {
-                    Runtime.getRuntime().exec("C:\\redis\\redis-server-stop.cmd");
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
-            } else {
-                rp.stop();
-            }
+            rp.stop();
         }));
         return rp;
     }
@@ -937,32 +927,31 @@ public class RedisRunner {
         }
         
         public int stop() {
-            if (runner.isNosave()) {
-                RedisClientConfig config = new RedisClientConfig();
-                config.setConnectTimeout(1000);
-                config.setAddress(runner.getInitialBindAddr(), runner.getPort());
-                RedisClient c = RedisClient.create(config);
-
-                RedisConnection connection = null;
+            if (runner.isNosave() && !runner.isRandomDir()) {
+                RedisClient c = createDefaultRedisClientInstance();
+                RedisConnection connection = c.connect();
                 try {
-                    connection = c.connect();
-                    connection.async(new RedisStrictCommand<Void>("SHUTDOWN", "NOSAVE", new VoidReplayConvertor()));
-                } catch (Exception e) {
+                    connection.async(new RedisStrictCommand<Void>("SHUTDOWN", "NOSAVE", new VoidReplayConvertor()))
+                            .get(3, TimeUnit.SECONDS);
+                } catch (InterruptedException interruptedException) {
+                    //shutdown via command failed, lets wait and kill it later.
+                } catch (ExecutionException | TimeoutException e) {
                     // skip
                 }
                 c.shutdown();
+                connection.closeAsync().syncUninterruptibly();
             }
             Process p = redisProcess;
             p.destroy();
-//            boolean normalTermination = false;
-//            try {
-//                normalTermination = p.waitFor(5, TimeUnit.SECONDS);
-//            } catch (InterruptedException ex) {
-//                //OK lets hurry up by force kill;
-//            }
-//            if (!normalTermination) {
-//                p = p.destroyForcibly();
-//            }
+            boolean normalTermination = false;
+            try {
+                normalTermination = p.waitFor(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ex) {
+                //OK lets hurry up by force kill;
+            }
+            if (!normalTermination) {
+                p = p.destroyForcibly();
+            }
             cleanup();
             int exitCode = p.exitValue();
             return exitCode == 1 && RedissonRuntimeEnvironment.isWindows ? 0 : exitCode;

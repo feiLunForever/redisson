@@ -1,18 +1,18 @@
 package org.redisson.transaction;
 
-import org.junit.jupiter.api.Test;
-import org.redisson.RedisDockerTest;
-import org.redisson.api.RSetCache;
-import org.redisson.api.RTransaction;
-import org.redisson.api.TransactionOptions;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+import org.redisson.BaseTest;
+import org.redisson.api.RSetCache;
+import org.redisson.api.RTransaction;
+import org.redisson.api.TransactionOptions;
 
-public class RedissonTransactionalSetCacheTest extends RedisDockerTest {
+public class RedissonTransactionalSetCacheTest extends BaseTest {
 
     @Test
     public void testRemoveAll() {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,8 @@ import org.redisson.api.queue.DequeMoveArgs;
 
 import java.time.Duration;
 import java.util.concurrent.BlockingDeque;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 /**
  * {@link BlockingDeque} backed by Redis
@@ -67,43 +65,21 @@ public interface RBlockingDeque<V> extends BlockingDeque<V>, RBlockingQueue<V>, 
     V move(Duration timeout, DequeMoveArgs args);
 
     /**
-     * Use {@link #subscribeOnFirstElements(Function)} instead.
-     *
-     * @param consumer - queue elements listener
-     * @return listenerId - id of listener
-     */
-    @Deprecated
-    int subscribeOnFirstElements(Consumer<V> consumer);
-
-    /**
-     * Use {@link #subscribeOnLastElements(Function)} instead.
-     *
-     * @param consumer - queue elements listener
-     * @return listenerId - id of listener
-     */
-    @Deprecated
-    int subscribeOnLastElements(Consumer<V> consumer);
-
-    /**
-     * Use {@link #subscribeOnLastElements(Function)} instead.
+     * Subscribes on first elements appeared in this queue.
      * Continuously invokes {@link #takeFirstAsync()} method to get a new element.
-     * <p>
-     * NOTE: don't call blocking methods in the elements listener
      *
      * @param consumer - queue elements listener
      * @return listenerId - id of listener
      */
-    int subscribeOnFirstElements(Function<V, CompletionStage<Void>> consumer);
+    int subscribeOnFirstElements(Consumer<V> consumer);
 
     /**
      * Subscribes on last elements appeared in this queue.
      * Continuously invokes {@link #takeLastAsync()} method to get a new element.
-     * <p>
-     * NOTE: don't call blocking methods in the elements listener
      *
      * @param consumer - queue elements listener
      * @return listenerId - id of listener
      */
-    int subscribeOnLastElements(Function<V, CompletionStage<Void>> consumer);
+    int subscribeOnLastElements(Consumer<V> consumer);
 
 }

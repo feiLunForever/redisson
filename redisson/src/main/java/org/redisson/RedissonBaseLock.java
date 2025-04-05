@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package org.redisson;
 
+import io.netty.util.Timeout;
+import io.netty.util.TimerTask;
 import org.redisson.api.RFuture;
 import org.redisson.api.RLock;
 import org.redisson.client.RedisException;
@@ -25,18 +27,12 @@ import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.convertor.IntegerReplayConvertor;
 import org.redisson.client.protocol.decoder.MapValueDecoder;
 import org.redisson.command.CommandAsyncExecutor;
-import org.redisson.command.CommandBatchService;
-import org.redisson.config.MasterSlaveServersConfig;
 import org.redisson.misc.CompletableFutureWrapper;
-import org.redisson.renewal.LockRenewalScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.Condition;
 
 /**
@@ -47,18 +43,68 @@ import java.util.concurrent.locks.Condition;
  */
 public abstract class RedissonBaseLock extends RedissonExpirable implements RLock {
 
+    public static class ExpirationEntry {
+
+        private final Map<Long, Integer> threadIds = new LinkedHashMap<>();
+        private volatile Timeout timeout;
+
+        public ExpirationEntry() {
+            super();
+        }
+
+        public synchronized void addThreadId(long threadId) {
+            threadIds.compute(threadId, (t, counter) -> {
+                counter = Optional.ofNullable(counter).orElse(0);
+                counter++;
+                return counter;
+            });
+        }
+        public synchronized boolean hasNoThreads() {
+            return threadIds.isEmpty();
+        }
+        public synchronized Long getFirstThreadId() {
+            if (threadIds.isEmpty()) {
+                return null;
+            }
+            return threadIds.keySet().iterator().next();
+        }
+        public synchronized void removeThreadId(long threadId) {
+            threadIds.compute(threadId, (t, counter) -> {
+                if (counter == null) {
+                    return null;
+                }
+                counter--;
+                if (counter == 0) {
+                    return null;
+                }
+                return counter;
+            });
+        }
+
+        public void setTimeout(Timeout timeout) {
+            this.timeout = timeout;
+        }
+        public Timeout getTimeout() {
+            return timeout;
+        }
+
+    }
+
     private static final Logger log = LoggerFactory.getLogger(RedissonBaseLock.class);
+
+    //服务名称+锁名称为key
+    private static final ConcurrentMap<String, ExpirationEntry> EXPIRATION_RENEWAL_MAP = new ConcurrentHashMap<>();
+    protected long internalLockLeaseTime;
 
     final String id;
     final String entryName;
 
-    final LockRenewalScheduler renewalScheduler;
-
     public RedissonBaseLock(CommandAsyncExecutor commandExecutor, String name) {
         super(commandExecutor, name);
         this.id = getServiceManager().getId();
+        this.internalLockLeaseTime = getServiceManager().getCfg().getLockWatchdogTimeout();
+        //服务id + 锁名称
         this.entryName = id + ":" + name;
-        this.renewalScheduler = getServiceManager().getRenewalScheduler();
     }
 
     protected String getEntryName() {
@@ -69,16 +115,107 @@ public abstract class RedissonBaseLock extends RedissonExpirable implements RLoc
         return id + ":" + threadId;
     }
 
+    //开启自动续约逻辑
+    private void renewExpiration() {
+        ExpirationEntry ee = EXPIRATION_RENEWAL_MAP.get(getEntryName());
+        if (ee == null) {
+            return;
+        }
+
+        //开启自动续约的任务
+        Timeout task = getServiceManager().newTimeout(new TimerTask() {
+            @Override
+            public void run(Timeout timeout) throws Exception {
+                ExpirationEntry ent = EXPIRATION_RENEWAL_MAP.get(getEntryName());
+                if (ent == null) {
+                    return;
+                }
+                //拿到锁的持有线程
+                Long threadId = ent.getFirstThreadId();
+                if (threadId == null) {
+                    return;
+                }
+                
+                CompletionStage<Boolean> future = renewExpirationAsync(threadId);
+                future.whenComplete((res, e) -> {
+                    if (e != null) {
+                        log.error("Can't update lock {} expiration", getRawName(), e);
+                        EXPIRATION_RENEWAL_MAP.remove(getEntryName());
+                        return;
+                    }
+                    
+                    if (res) {
+                        // reschedule itself 重新触发一次续约任务执行
+                        renewExpiration();
+                    } else {
+                        //如果锁不存在了，那么就删除掉任务
+                        cancelExpirationRenewal(null);
+                    }
+                });
+            }
+            //锁过期时间的1/3后 执行一次本任务
+        }, internalLockLeaseTime / 3, TimeUnit.MILLISECONDS);
+        
+        ee.setTimeout(task);
+    }
+
+    //开启定时续约过期时间逻辑
     protected void scheduleExpirationRenewal(long threadId) {
-        renewalScheduler.renewLock(getRawName(), threadId, getLockName(threadId));
+        ExpirationEntry entry = new ExpirationEntry();
+        //服务名称+锁名称为key，一个服务一个锁 = 存在一个entry
+        ExpirationEntry oldEntry = EXPIRATION_RENEWAL_MAP.putIfAbsent(getEntryName(), entry);
+        if (oldEntry != null) {
+            //已经存在，那么替换里面的线程id。
+            oldEntry.addThreadId(threadId);
+        } else {
+            //不存在，设置线程id
+            entry.addThreadId(threadId);
+            try {
+                //开启自动续约逻辑
+                renewExpiration();
+            } finally {
+                if (Thread.currentThread().isInterrupted()) {
+                    //线程被打断了，取消自动续约逻辑
+                    cancelExpirationRenewal(threadId);
+                }
+            }
+        }
     }
 
-    protected void cancelExpirationRenewal(Long threadId, Boolean unlockResult) {
-        renewalScheduler.cancelLockRenewal(getRawName(), threadId);
+    //执行异步续约过期时间逻辑
+    protected CompletionStage<Boolean> renewExpirationAsync(long threadId) {
+        return evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                "if (redis.call('hexists', KEYS[1], ARGV[2]) == 1) then " +
+                        "redis.call('pexpire', KEYS[1], ARGV[1]); " +
+                        "return 1; " +
+                        "end; " +
+                        "return 0;",
+                Collections.singletonList(getRawName()),
+                internalLockLeaseTime, getLockName(threadId));
     }
 
-    protected final <T> RFuture<T> evalWriteSyncedNoRetryAsync(String key, Codec codec, RedisCommand<T> evalCommandType, String script, List<Object> keys, Object... params) {
-        return commandExecutor.syncedEvalNoRetry(key, codec, evalCommandType, script, keys, params);
+    protected void cancelExpirationRenewal(Long threadId) {
+        ExpirationEntry task = EXPIRATION_RENEWAL_MAP.get(getEntryName());
+        if (task == null) {
+            return;
+        }
+        
+        if (threadId != null) {
+            task.removeThreadId(threadId);
+        }
+
+        if (threadId == null || task.hasNoThreads()) {
+            Timeout timeout = task.getTimeout();
+            if (timeout != null) {
+                timeout.cancel();
+            }
+            //删除掉任务
+            EXPIRATION_RENEWAL_MAP.remove(getEntryName());
+        }
+    }
+
+    protected final <T> RFuture<T> evalWriteAsync(String key, Codec codec, RedisCommand<T> evalCommandType, String script, List<Object> keys, Object... params) {
+        return commandExecutor.syncedEval(key, codec, evalCommandType, script, keys, params);
     }
 
     protected void acquireFailed(long waitTime, TimeUnit unit, long threadId) {
@@ -122,12 +259,8 @@ public abstract class RedissonBaseLock extends RedissonExpirable implements RLoc
 
     @Override
     public boolean isHeldByThread(long threadId) {
-        return get(isHeldByThreadAsync(threadId));
-    }
-
-    @Override
-    public RFuture<Boolean> isHeldByThreadAsync(long threadId) {
-        return commandExecutor.writeAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.HEXISTS, getRawName(), getLockName(threadId));
+        RFuture<Boolean> future = commandExecutor.writeAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.HEXISTS, getRawName(), getLockName(threadId));
+        return get(future);
     }
 
     private static final RedisCommand<Integer> HGET = new RedisCommand<Integer>("HGET", new MapValueDecoder(), new IntegerReplayConvertor(0));
@@ -159,8 +292,8 @@ public abstract class RedissonBaseLock extends RedissonExpirable implements RLoc
 
     private RFuture<Void> unlockAsync0(long threadId) {
         CompletionStage<Boolean> future = unlockInnerAsync(threadId);
-        CompletionStage<Void> f = future.handle((res, e) -> {
-            cancelExpirationRenewal(threadId, res);
+        CompletionStage<Void> f = future.handle((opStatus, e) -> {
+            cancelExpirationRenewal(threadId);
 
             if (e != null) {
                 if (e instanceof CompletionException) {
@@ -168,7 +301,7 @@ public abstract class RedissonBaseLock extends RedissonExpirable implements RLoc
                 }
                 throw new CompletionException(e);
             }
-            if (res == null) {
+            if (opStatus == null) {
                 IllegalMonitorStateException cause = new IllegalMonitorStateException("attempt to unlock lock, not locked by current thread by node id: "
                         + id + " thread-id: " + threadId);
                 throw new CompletionException(cause);
@@ -208,31 +341,7 @@ public abstract class RedissonBaseLock extends RedissonExpirable implements RLoc
         return get(forceUnlockAsync());
     }
 
-    String getUnlockLatchName(String requestId) {
-        return prefixName("redisson_unlock_latch", getRawName()) + ":" + requestId;
-    }
-
-    protected abstract RFuture<Boolean> unlockInnerAsync(long threadId, String requestId, int timeout);
-
-    protected final RFuture<Boolean> unlockInnerAsync(long threadId) {
-        String id = getServiceManager().generateId();
-        MasterSlaveServersConfig config = getServiceManager().getConfig();
-        int timeout = (config.getTimeout() + config.getRetryInterval()) * config.getRetryAttempts();
-        timeout = Math.max(timeout, 1);
-        RFuture<Boolean> r = unlockInnerAsync(threadId, id, timeout);
-        CompletionStage<Boolean> ff = r.thenApply(v -> {
-            CommandAsyncExecutor ce = commandExecutor;
-            if (ce instanceof CommandBatchService) {
-                ce = new CommandBatchService(commandExecutor);
-            }
-            ce.writeAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.DEL, getUnlockLatchName(id));
-            if (ce instanceof CommandBatchService) {
-                ((CommandBatchService) ce).executeAsync();
-            }
-            return v;
-        });
-        return new CompletableFutureWrapper<>(ff);
-    }
+    protected abstract RFuture<Boolean> unlockInnerAsync(long threadId);
 
     @Override
     public RFuture<Void> lockAsync() {
@@ -268,11 +377,6 @@ public abstract class RedissonBaseLock extends RedissonExpirable implements RLoc
 
     protected final <T> CompletionStage<T> handleNoSync(long threadId, CompletionStage<T> ttlRemainingFuture) {
         return commandExecutor.handleNoSync(ttlRemainingFuture, () -> unlockInnerAsync(threadId));
-    }
-
-    @Override
-    public RFuture<Boolean> copyAsync(List<Object> keys, int database, boolean replace) {
-        throw new UnsupportedOperationException();
     }
 
 }

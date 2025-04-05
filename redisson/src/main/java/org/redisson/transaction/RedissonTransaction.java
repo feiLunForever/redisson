@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,8 +27,6 @@ import org.redisson.cache.LocalCachedMapDisabledKey;
 import org.redisson.cache.LocalCachedMapEnable;
 import org.redisson.cache.LocalCachedMessageCodec;
 import org.redisson.client.codec.Codec;
-import org.redisson.client.codec.StringCodec;
-import org.redisson.codec.CompositeCodec;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.command.CommandBatchService;
 import org.redisson.connection.MasterSlaveEntry;
@@ -56,15 +54,13 @@ public class RedissonTransaction implements RTransaction {
     private final TransactionOptions options;
     private List<TransactionalOperation> operations = new CopyOnWriteArrayList<>();
     private Set<String> localCaches = new HashSet<>();
-    private final Map<RLocalCachedMap<?, ?>, RLocalCachedMap<?, ?>> localCacheInstances = new IdentityHashMap<>();
+    private final Map<RLocalCachedMap<?, ?>, RLocalCachedMap<?, ?>> localCacheInstances = new HashMap<>();
     private final Map<String, Object> instances = new HashMap<>();
 
     private RedissonTransactionalBuckets bucketsInstance;
     private RedissonTransactionalBuckets bucketsCodecInstance;
     private final long startTime = System.currentTimeMillis();
-
-    private final CompositeCodec localCacheCodec = new CompositeCodec(LocalCachedMessageCodec.INSTANCE, StringCodec.INSTANCE, StringCodec.INSTANCE);
-
+    
     private final String id;
     
     public RedissonTransaction(CommandAsyncExecutor commandExecutor, TransactionOptions options) {
@@ -213,7 +209,7 @@ public class RedissonTransaction implements RTransaction {
         
         BatchOptions batchOptions = createOptions();
         
-        CommandBatchService transactionExecutor = commandExecutor.createCommandBatchService(batchOptions);
+        CommandBatchService transactionExecutor = new CommandBatchService(commandExecutor, batchOptions);
         for (TransactionalOperation transactionalOperation : operations) {
             transactionalOperation.commit(transactionExecutor);
         }
@@ -282,7 +278,7 @@ public class RedissonTransaction implements RTransaction {
         
         BatchOptions batchOptions = createOptions();
         
-        CommandBatchService transactionExecutor = commandExecutor.createCommandBatchService(batchOptions);
+        CommandBatchService transactionExecutor = new CommandBatchService(commandExecutor, batchOptions);
         for (TransactionalOperation transactionalOperation : operations) {
             transactionalOperation.commit(transactionExecutor);
         }
@@ -374,7 +370,7 @@ public class RedissonTransaction implements RTransaction {
                 value.getKeyIds().add(key);
 
                 String disabledKeysName = RedissonObject.suffixName(transactionalOperation.getName(), RedissonLocalCachedMap.DISABLED_KEYS_SUFFIX);
-                RMultimapCacheAsync<LocalCachedMapDisabledKey, String> multimap = batch.getListMultimapCache(disabledKeysName, localCacheCodec);
+                RMultimapCacheAsync<LocalCachedMapDisabledKey, String> multimap = batch.getListMultimapCache(disabledKeysName, transactionalOperation.getCodec());
                 LocalCachedMapDisabledKey localCacheKey = new LocalCachedMapDisabledKey(requestId, options.getResponseTimeout());
                 multimap.putAsync(localCacheKey, ByteBufUtil.hexDump(key));
                 multimap.expireKeyAsync(localCacheKey, options.getResponseTimeout(), TimeUnit.MILLISECONDS);
@@ -407,7 +403,7 @@ public class RedissonTransaction implements RTransaction {
         RedissonBatch publishBatch = createBatch();
         for (Entry<HashKey, HashValue> entry : hashes.entrySet()) {
             String disabledKeysName = RedissonObject.suffixName(entry.getKey().getName(), RedissonLocalCachedMap.DISABLED_KEYS_SUFFIX);
-            RMultimapCacheAsync<LocalCachedMapDisabledKey, String> multimap = publishBatch.getListMultimapCache(disabledKeysName, localCacheCodec);
+            RMultimapCacheAsync<LocalCachedMapDisabledKey, String> multimap = publishBatch.getListMultimapCache(disabledKeysName, entry.getKey().getCodec());
             LocalCachedMapDisabledKey localCacheKey = new LocalCachedMapDisabledKey(requestId, options.getResponseTimeout());
             multimap.removeAllAsync(localCacheKey);
             
@@ -504,7 +500,7 @@ public class RedissonTransaction implements RTransaction {
                         RedissonBatch publishBatch = createBatch();
                         for (Entry<HashKey, HashValue> entry : hashes.entrySet()) {
                             String disabledKeysName = RedissonObject.suffixName(entry.getKey().getName(), RedissonLocalCachedMap.DISABLED_KEYS_SUFFIX);
-                            RMultimapCacheAsync<LocalCachedMapDisabledKey, String> multimap = publishBatch.getListMultimapCache(disabledKeysName, localCacheCodec);
+                            RMultimapCacheAsync<LocalCachedMapDisabledKey, String> multimap = publishBatch.getListMultimapCache(disabledKeysName, entry.getKey().getCodec());
                             LocalCachedMapDisabledKey localCacheKey = new LocalCachedMapDisabledKey(requestId, options.getResponseTimeout());
                             multimap.removeAllAsync(localCacheKey);
 

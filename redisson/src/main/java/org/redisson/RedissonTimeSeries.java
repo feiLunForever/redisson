@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,9 @@
  */
 package org.redisson;
 
-import org.redisson.api.ObjectListener;
 import org.redisson.api.RFuture;
 import org.redisson.api.RTimeSeries;
 import org.redisson.api.TimeSeriesEntry;
-import org.redisson.api.listener.ScoredSortedSetAddListener;
-import org.redisson.api.listener.ScoredSortedSetRemoveListener;
-import org.redisson.api.listener.TrackingListener;
 import org.redisson.client.RedisClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.LongCodec;
@@ -38,7 +34,6 @@ import org.redisson.misc.CompletableFutureWrapper;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -50,15 +45,13 @@ import java.util.stream.Stream;
 public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTimeSeries<V, L> {
 
     private final EvictionScheduler evictionScheduler;
-    private String timeoutSetName;
 
     public RedissonTimeSeries(EvictionScheduler evictionScheduler, CommandAsyncExecutor connectionManager, String name) {
         super(connectionManager, name);
 
         this.evictionScheduler = evictionScheduler;
-        this.timeoutSetName = getTimeoutSetName(getRawName());
         if (evictionScheduler != null) {
-            evictionScheduler.scheduleTimeSeries(getRawName(), timeoutSetName);
+            evictionScheduler.scheduleTimeSeries(getRawName(), getTimeoutSetName());
         }
     }
 
@@ -66,14 +59,13 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
         super(codec, connectionManager, name);
 
         this.evictionScheduler = evictionScheduler;
-        this.timeoutSetName = getTimeoutSetName(getRawName());
         if (evictionScheduler != null) {
-            evictionScheduler.scheduleTimeSeries(getRawName(), timeoutSetName);
+            evictionScheduler.scheduleTimeSeries(getRawName(), getTimeoutSetName());
         }
     }
 
-    String getTimeoutSetName(String name) {
-        return prefixName("redisson__ts_ttl", name);
+    String getTimeoutSetName() {
+        return prefixName("redisson__ts_ttl", getRawName());
     }
 
     @Override
@@ -98,7 +90,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
 
     @Override
     public void addAll(Map<Long, V> objects) {
-        addAll(objects, 0, TimeUnit.MILLISECONDS);
+        addAll(objects, 0, null);
     }
 
     @Override
@@ -109,16 +101,6 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
     @Override
     public RFuture<Void> addAsync(long timestamp, V object, long timeToLive, TimeUnit timeUnit) {
         return addAllAsync(Collections.singletonMap(timestamp, object), timeToLive, timeUnit);
-    }
-
-    @Override
-    public void add(long timestamp, V object, Duration timeToLive) {
-        get(addAsync(timestamp, object, timeToLive));
-    }
-
-    @Override
-    public RFuture<Void> addAsync(long timestamp, V object, Duration timeToLive) {
-        return addAllAsync(Collections.singletonMap(timestamp, object), timeToLive);
     }
 
     @Override
@@ -138,24 +120,14 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
 
     @Override
     public RFuture<Void> addAllAsync(Map<Long, V> objects) {
-        return addAllAsync(objects, 0, TimeUnit.MILLISECONDS);
+        return addAllAsync(objects, 0, null);
     }
 
     @Override
     public RFuture<Void> addAllAsync(Map<Long, V> objects, long timeToLive, TimeUnit timeUnit) {
-        return addAllAsync(objects, Duration.ofMillis(timeUnit.toMillis(timeToLive)));
-    }
-
-    @Override
-    public void addAll(Map<Long, V> objects, Duration timeToLive) {
-        get(addAllAsync(objects, timeToLive));
-    }
-
-    @Override
-    public RFuture<Void> addAllAsync(Map<Long, V> objects, Duration timeToLive) {
         long expirationTime = System.currentTimeMillis();
-        if (timeToLive != null && !timeToLive.isZero()) {
-            expirationTime += timeToLive.toMillis();
+        if (timeToLive > 0) {
+            expirationTime += timeUnit.toMillis(timeToLive);
         } else {
             expirationTime += TimeUnit.DAYS.toMillis(365 * 100);
         }
@@ -169,14 +141,14 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
             encode(params, entry.getValue());
         }
 
-        if (timeToLive != null && !timeToLive.isZero()) {
+        if (timeToLive > 0) {
             return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_VOID,
            "for i = 2, #ARGV, 3 do " +
                     "local val = struct.pack('BBc0Lc0Lc0', 2, string.len(ARGV[i+1]), ARGV[i+1], string.len(ARGV[i+2]), ARGV[i+2], 0, ''); " +
                     "redis.call('zadd', KEYS[1], ARGV[i], val); " +
                     "redis.call('zadd', KEYS[2], ARGV[1], val); " +
                  "end; ",
-                Arrays.asList(getRawName(), timeoutSetName),
+                Arrays.asList(getRawName(), getTimeoutSetName()),
                 params.toArray());
         }
         return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_VOID,
@@ -190,7 +162,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                     "redis.call('zadd', KEYS[1], ARGV[i], val); " +
                     "redis.call('zadd', KEYS[2], expirationTime + 1, val); " +
                  "end; ",
-                Arrays.asList(getRawName(), timeoutSetName),
+                Arrays.asList(getRawName(), getTimeoutSetName()),
                 params.toArray());
     }
 
@@ -247,7 +219,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                     "redis.call('zadd', KEYS[1], ARGV[i], val); " +
                     "redis.call('zadd', KEYS[2], ARGV[1], val); " +
                  "end; ",
-                Arrays.asList(getRawName(), timeoutSetName),
+                Arrays.asList(getRawName(), getTimeoutSetName()),
                 params.toArray());
         }
         return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_VOID,
@@ -264,7 +236,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                     "redis.call('zadd', KEYS[1], ARGV[i], val); " +
                     "redis.call('zadd', KEYS[2], expirationTime + 1, val); " +
                  "end; ",
-                Arrays.asList(getRawName(), timeoutSetName),
+                Arrays.asList(getRawName(), getTimeoutSetName()),
                 params.toArray());
     }
 
@@ -278,7 +250,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
         return commandExecutor.evalReadAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_INTEGER,
        "local values = redis.call('zrangebyscore', KEYS[2], 0, ARGV[1]);" +
              "return redis.call('zcard', KEYS[1]) - #values;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis());
     }
 
@@ -301,7 +273,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
              "end;" +
              "local n, t, val, label = struct.unpack('BBc0Lc0Lc0', values[1]); " +
              "return val;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), timestamp);
     }
 
@@ -327,7 +299,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                 "return {n, ARGV[2], val};" +
              "end;" +
              "return {n, ARGV[2], val, label};",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), timestamp);
     }
 
@@ -351,7 +323,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
              "redis.call('zrem', KEYS[2], values[1]); " +
              "redis.call('zrem', KEYS[1], values[1]); " +
              "return 1;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), timestamp);
     }
 
@@ -376,7 +348,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
              "redis.call('zrem', KEYS[1], values[1]); " +
              "local n, t, val, label = struct.unpack('BBc0Lc0Lc0', values[1]); " +
              "return val;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), timestamp);
     }
 
@@ -404,7 +376,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                 "return {n, ARGV[2], val};" +
              "end;" +
              "return {n, ARGV[2], val, label};",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), timestamp);
     }
 
@@ -523,7 +495,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                  "table.insert(result, t);" +
              "end;" +
              "return result;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startScore, limit);
     }
 
@@ -542,7 +514,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                  "table.insert(result, val);" +
              "end;" +
              "return result;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startScore, limit);
     }
 
@@ -568,7 +540,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                  "table.insert(result, score);" +
              "end;" +
              "return result;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startScore, limit);
     }
 
@@ -592,7 +564,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                  "end;" +
              "end;" +
              "return counter;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startTimestamp, endTimestamp);
     }
 
@@ -679,7 +651,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
              "from = '(' .. values[#values];" +
              "limit = tonumber(ARGV[4]) - #result/4;" +
           "end;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startTimestamp, endTimestamp, limit, Boolean.compare(reverse, false), encode((Object) null));
     }
 
@@ -749,7 +721,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
              "from = '(' .. values[#values];" +
              "limit = tonumber(ARGV[4]) - #result;" +
           "end;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startTimestamp, endTimestamp, limit, Boolean.compare(reverse, false));
     }
 
@@ -786,7 +758,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
     @Override
     public RFuture<Collection<V>> pollFirstAsync(int count) {
         if (count <= 0) {
-            return new CompletableFutureWrapper<>(Collections.<V>emptyList());
+            return new CompletableFutureWrapper<>(Collections.emptyList());
         }
 
         return pollAsync(0, count, RedisCommands.EVAL_LIST);
@@ -795,7 +767,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
     @Override
     public RFuture<Collection<V>> pollLastAsync(int count) {
         if (count <= 0) {
-            return new CompletableFutureWrapper<>(Collections.<V>emptyList());
+            return new CompletableFutureWrapper<>(Collections.emptyList());
         }
         return pollAsync(-1, count, RedisCommands.EVAL_LIST_REVERSE);
     }
@@ -808,7 +780,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
     @Override
     public RFuture<Collection<TimeSeriesEntry<V, L>>> pollFirstEntriesAsync(int count) {
         if (count <= 0) {
-            return new CompletableFutureWrapper<>(Collections.<TimeSeriesEntry<V, L>>emptyList());
+            return new CompletableFutureWrapper<>(Collections.emptyList());
         }
 
         return pollEntriesAsync(0, count, EVAL_ENTRIES);
@@ -822,7 +794,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
     @Override
     public RFuture<Collection<TimeSeriesEntry<V, L>>> pollLastEntriesAsync(int count) {
         if (count <= 0) {
-            return new CompletableFutureWrapper<>(Collections.<TimeSeriesEntry<V, L>>emptyList());
+            return new CompletableFutureWrapper<>(Collections.emptyList());
         }
         return pollEntriesAsync(-1, count, EVAL_ENTRIES_REVERSE);
     }
@@ -884,7 +856,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                  "table.insert(result, val);" +
              "end;" +
              "return result;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startScore, limit);
     }
 
@@ -912,17 +884,17 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                  "table.insert(result, score);" +
              "end;" +
              "return result;",
-            Arrays.asList(getRawName(), timeoutSetName),
+            Arrays.asList(getRawName(), getTimeoutSetName()),
             System.currentTimeMillis(), startScore, limit);
     }
 
 
-    public ListScanResult<Object> scanIterator(String name, RedisClient client, String startPos, int count) {
+    public ListScanResult<Object> scanIterator(String name, RedisClient client, long startPos, int count) {
         RFuture<ListScanResult<Object>> f = scanIteratorAsync(name, client, startPos, count);
         return get(f);
     }
 
-    public RFuture<ListScanResult<Object>> scanIteratorAsync(String name, RedisClient client, String startPos, int count) {
+    public RFuture<ListScanResult<Object>> scanIteratorAsync(String name, RedisClient client, long startPos, int count) {
         List<Object> params = new ArrayList<>();
         params.add(startPos);
         params.add(System.currentTimeMillis());
@@ -944,8 +916,8 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
                     "nextPos = 0;" +
                   "end;"
 
-                + "return {tostring(nextPos), result};",
-                Arrays.asList(name, timeoutSetName),
+                + "return {nextPos, result};",
+                Arrays.asList(name, getTimeoutSetName()),
                 params.toArray());
     }
 
@@ -954,7 +926,7 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
         return new RedissonBaseIterator<V>() {
 
             @Override
-            protected ListScanResult<Object> iterator(RedisClient client, String nextIterPos) {
+            protected ListScanResult<Object> iterator(RedisClient client, long nextIterPos) {
                 return scanIterator(getRawName(), client, nextIterPos, count);
             }
 
@@ -986,110 +958,32 @@ public class RedissonTimeSeries<V, L> extends RedissonExpirable implements RTime
         if (evictionScheduler != null) {
             evictionScheduler.remove(getRawName());
         }
-        removeListeners();
     }
 
     @Override
     public RFuture<Boolean> deleteAsync() {
-        return deleteAsync(getRawName(), timeoutSetName);
+        return deleteAsync(getRawName(), getTimeoutSetName());
     }
 
     @Override
     public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
-        return super.expireAsync(timeToLive, timeUnit, param, getRawName(), timeoutSetName);
+        return super.expireAsync(timeToLive, timeUnit, param, getRawName(), getTimeoutSetName());
     }
 
     @Override
     protected RFuture<Boolean> expireAtAsync(long timestamp, String param, String... keys) {
-        return super.expireAtAsync(timestamp, getRawName(), timeoutSetName);
+        return super.expireAtAsync(timestamp, getRawName(), getTimeoutSetName());
     }
 
     @Override
     public RFuture<Boolean> clearExpireAsync() {
-        return clearExpireAsync(getRawName(), timeoutSetName);
+        return clearExpireAsync(getRawName(), getTimeoutSetName());
     }
 
     @Override
     public RFuture<Long> sizeInMemoryAsync() {
-        List<Object> keys = Arrays.asList(getRawName(), timeoutSetName);
+        List<Object> keys = Arrays.asList(getRawName(), getTimeoutSetName());
         return super.sizeInMemoryAsync(keys);
-    }
-
-    @Override
-    public RFuture<Boolean> copyAsync(List<Object> keys, int database, boolean replace) {
-        String newName = (String) keys.get(1);
-        List<Object> kks = Arrays.asList(getRawName(), timeoutSetName,
-                newName, getTimeoutSetName(newName));
-        return super.copyAsync(kks, database, replace);
-    }
-
-    @Override
-    public RFuture<Void> renameAsync(String nn) {
-        String newName = mapName(nn);
-        List<Object> kks = Arrays.asList(getRawName(), timeoutSetName,
-                newName, getTimeoutSetName(newName));
-        return renameAsync(commandExecutor, kks, () -> {
-            setName(nn);
-            this.timeoutSetName = getTimeoutSetName(newName);
-        });
-    }
-
-    @Override
-    public RFuture<Boolean> renamenxAsync(String nn) {
-        String newName = mapName(nn);
-        List<Object> kks = Arrays.asList(getRawName(), timeoutSetName,
-                newName, getTimeoutSetName(newName));
-        return renamenxAsync(commandExecutor, kks, value -> {
-            if (value) {
-                setName(nn);
-                this.timeoutSetName = getTimeoutSetName(newName);
-            }
-        });
-    }
-
-    @Override
-    public int addListener(ObjectListener listener) {
-        if (listener instanceof ScoredSortedSetAddListener) {
-            return addListener("__keyevent@*:zadd", (ScoredSortedSetAddListener) listener, ScoredSortedSetAddListener::onAdd);
-        }
-        if (listener instanceof ScoredSortedSetRemoveListener) {
-            return addListener("__keyevent@*:zrem", (ScoredSortedSetRemoveListener) listener, ScoredSortedSetRemoveListener::onRemove);
-        }
-        if (listener instanceof TrackingListener) {
-            return addTrackingListener((TrackingListener) listener);
-        }
-
-        return super.addListener(listener);
-    }
-
-    @Override
-    public RFuture<Integer> addListenerAsync(ObjectListener listener) {
-        if (listener instanceof ScoredSortedSetAddListener) {
-            return addListenerAsync("__keyevent@*:zadd", (ScoredSortedSetAddListener) listener, ScoredSortedSetAddListener::onAdd);
-        }
-        if (listener instanceof ScoredSortedSetRemoveListener) {
-            return addListenerAsync("__keyevent@*:zrem", (ScoredSortedSetRemoveListener) listener, ScoredSortedSetRemoveListener::onRemove);
-        }
-        if (listener instanceof TrackingListener) {
-            return addTrackingListenerAsync((TrackingListener) listener);
-        }
-
-        return super.addListenerAsync(listener);
-    }
-
-    @Override
-    public void removeListener(int listenerId) {
-        removeTrackingListener(listenerId);
-        removeListener(listenerId, "__keyevent@*:zadd", "__keyevent@*:zrem");
-        super.removeListener(listenerId);
-    }
-
-    @Override
-    public RFuture<Void> removeListenerAsync(int listenerId) {
-        RFuture<Void> f1 = removeTrackingListenerAsync(listenerId);
-        RFuture<Void> f2 = removeListenerAsync(listenerId,
-                "__keyevent@*:zadd", "__keyevent@*:zrem");
-        return new CompletableFutureWrapper<>(CompletableFuture.allOf(f1.toCompletableFuture(), f2.toCompletableFuture()));
     }
 
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -137,18 +137,8 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
     /**
      * Adds the given <code>delta</code> to the current value
      * by mapped <code>key</code>.
-     * <p>
-     * Works only with codecs below
-     * <p>
-     * {@link org.redisson.codec.JsonJacksonCodec},
-     * <p>
-     * {@link org.redisson.client.codec.StringCodec},
-     * <p>
-     * {@link org.redisson.client.codec.IntegerCodec},
-     * <p>
-     * {@link org.redisson.client.codec.DoubleCodec}
-     * <p>
-     * {@link org.redisson.client.codec.LongCodec}
+     *
+     * Works only for <b>numeric</b> values!
      *
      * @param key - map key
      * @param delta the value to add
@@ -417,24 +407,15 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
      * Returns iterator over map entries collection.
      * Map entries are loaded in batch. Batch size is <code>10</code>. 
      * If <code>keyPattern</code> is not null then only entries mapped by matched keys of this pattern are loaded.
-     * <p>
-     * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
-     * <p>
-     * Usage example:
-     * <pre>
-     *     Codec valueCodec = ...
-     *     RMapReactive<String, MyObject> map = redissonClient.getMap("simpleMap", new CompositeCodec(StringCodec.INSTANCE, valueCodec, valueCodec));
-     *
-     *     // or
-     *
-     *     RMapReactive<String, String> map = redissonClient.getMap("simpleMap", StringCodec.INSTANCE);
-     * </pre>
-     * <pre>
+     * 
      *  Supported glob-style patterns:
+     *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
+     *    <p>
      *    h*llo subscribes to hllo and heeeello
+     *    <p>
      *    h[ae]llo subscribes to hello and hallo, but not hillo
-     * </pre>
+     * 
      * @see #readAllEntrySet()
      * 
      * @param pattern - key pattern
@@ -446,24 +427,15 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
      * Returns iterator over map entries collection.
      * Map entries are loaded in batch. Batch size is defined by <code>count</code> param. 
      * If <code>keyPattern</code> is not null then only entries mapped by matched keys of this pattern are loaded.
-     * <p>
-     * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
-     * <p>
-     * Usage example:
-     * <pre>
-     *     Codec valueCodec = ...
-     *     RMapReactive<String, MyObject> map = redissonClient.getMap("simpleMap", new CompositeCodec(StringCodec.INSTANCE, valueCodec, valueCodec));
-     *
-     *     // or
-     *
-     *     RMapReactive<String, String> map = redissonClient.getMap("simpleMap", StringCodec.INSTANCE);
-     * </pre>
-     * <pre>
+     * 
      *  Supported glob-style patterns:
+     *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
+     *    <p>
      *    h*llo subscribes to hllo and heeeello
+     *    <p>
      *    h[ae]llo subscribes to hello and hallo, but not hillo
-     * </pre>
+     * 
      * @see #readAllEntrySet()
      * 
      * @param pattern - key pattern
@@ -500,21 +472,15 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
      * <p>
      * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
      * <p>
-     * Usage example:
-     * <pre>
-     *     Codec valueCodec = ...
-     *     RMapReactive<String, MyObject> map = redissonClient.getMap("simpleMap", new CompositeCodec(StringCodec.INSTANCE, valueCodec, valueCodec));
      *
-     *     // or
-     *
-     *     RMapReactive<String, String> map = redissonClient.getMap("simpleMap", StringCodec.INSTANCE);
-     * </pre>
-     * <pre>
      *  Supported glob-style patterns:
+     *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
+     *    <p>
      *    h*llo subscribes to hllo and heeeello
+     *    <p>
      *    h[ae]llo subscribes to hello and hallo, but not hillo
-     * </pre>
+     * 
      * @see #readAllValues()
      * 
      * @param pattern - key pattern
@@ -529,21 +495,15 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
      * <p>
      * Use <code>org.redisson.client.codec.StringCodec</code> for Map keys.
      * <p>
-     * Usage example:
-     * <pre>
-     *     Codec valueCodec = ...
-     *     RMapReactive<String, MyObject> map = redissonClient.getMap("simpleMap", new CompositeCodec(StringCodec.INSTANCE, valueCodec, valueCodec));
      *
-     *     // or
-     *
-     *     RMapReactive<String, String> map = redissonClient.getMap("simpleMap", StringCodec.INSTANCE);
-     * </pre>
-     * <pre>
      *  Supported glob-style patterns:
+     *  <p>
      *    h?llo subscribes to hello, hallo and hxllo
+     *    <p>
      *    h*llo subscribes to hllo and heeeello
+     *    <p>
      *    h[ae]llo subscribes to hello and hallo, but not hillo
-     * </pre>
+     * 
      * @see #readAllValues()
      * 
      * @param pattern - key pattern
@@ -662,7 +622,6 @@ public interface RMapReactive<K, V> extends RExpirableReactive {
     /**
      * Adds object event listener
      *
-     * @see org.redisson.api.listener.TrackingListener
      * @see org.redisson.api.listener.MapPutListener
      * @see org.redisson.api.listener.MapRemoveListener
      * @see org.redisson.api.ExpiredObjectListener

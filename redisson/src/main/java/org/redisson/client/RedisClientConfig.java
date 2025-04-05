@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,14 @@
 package org.redisson.client;
 
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.socket.DuplexChannel;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.Timer;
-import org.redisson.config.*;
+import org.redisson.config.CommandMapper;
+import org.redisson.config.CredentialsResolver;
+import org.redisson.config.DefaultCommandMapper;
+import org.redisson.config.SslProvider;
 import org.redisson.misc.RedisURI;
 
 import javax.net.ssl.KeyManagerFactory;
@@ -44,7 +47,7 @@ public class RedisClientConfig {
     private ExecutorService executor;
     private EventLoopGroup group;
     private AddressResolverGroup<InetSocketAddress> resolverGroup;
-    private Class<? extends DuplexChannel> socketChannelClass = NioSocketChannel.class;
+    private Class<? extends SocketChannel> socketChannelClass = NioSocketChannel.class;
     private int connectTimeout = 10000;
     private int commandTimeout = 10000;
 
@@ -56,16 +59,11 @@ public class RedisClientConfig {
     private boolean keepPubSubOrder = true;
     private int pingConnectionInterval;
     private boolean keepAlive;
-    private int tcpKeepAliveCount;
-    private int tcpKeepAliveIdle;
-    private int tcpKeepAliveInterval;
-    private int tcpUserTimeout;
     private boolean tcpNoDelay;
     
     private String sslHostname;
-    private SslVerificationMode sslVerificationMode = SslVerificationMode.STRICT;
+    private boolean sslEnableEndpointIdentification = true;
     private SslProvider sslProvider = SslProvider.JDK;
-    private String sslKeystoreType;
     private URL sslTruststore;
     private String sslTruststorePassword;
     private URL sslKeystore;
@@ -80,10 +78,6 @@ public class RedisClientConfig {
     private Consumer<InetSocketAddress> disconnectedListener;
 
     private CommandMapper commandMapper = new DefaultCommandMapper();
-
-    private FailedNodeDetector failedNodeDetector = new FailedConnectionDetector();
-
-    private Protocol protocol = Protocol.RESP2;
 
     public RedisClientConfig() {
     }
@@ -108,6 +102,7 @@ public class RedisClientConfig {
         this.pingConnectionInterval = config.pingConnectionInterval;
         this.keepAlive = config.keepAlive;
         this.tcpNoDelay = config.tcpNoDelay;
+        this.sslEnableEndpointIdentification = config.sslEnableEndpointIdentification;
         this.sslProvider = config.sslProvider;
         this.sslTruststore = config.sslTruststore;
         this.sslTruststorePassword = config.sslTruststorePassword;
@@ -123,14 +118,6 @@ public class RedisClientConfig {
         this.sslKeyManagerFactory = config.sslKeyManagerFactory;
         this.sslTrustManagerFactory = config.sslTrustManagerFactory;
         this.commandMapper = config.commandMapper;
-        this.failedNodeDetector = config.failedNodeDetector;
-        this.tcpKeepAliveCount = config.tcpKeepAliveCount;
-        this.tcpKeepAliveIdle = config.tcpKeepAliveIdle;
-        this.tcpKeepAliveInterval = config.tcpKeepAliveInterval;
-        this.tcpUserTimeout = config.tcpUserTimeout;
-        this.protocol = config.protocol;
-        this.sslKeystoreType = config.sslKeystoreType;
-        this.sslVerificationMode = config.sslVerificationMode;
     }
 
     public NettyHook getNettyHook() {
@@ -150,7 +137,7 @@ public class RedisClientConfig {
     }
 
     public RedisClientConfig setAddress(String host, int port) {
-        this.address = new RedisURI(RedisURI.REDIS_PROTOCOL + host + ":" + port);
+        this.address = new RedisURI("redis://" + host + ":" + port);
         return this;
     }
     public RedisClientConfig setAddress(String address) {
@@ -197,10 +184,10 @@ public class RedisClientConfig {
         return this;
     }
     
-    public Class<? extends DuplexChannel> getSocketChannelClass() {
+    public Class<? extends SocketChannel> getSocketChannelClass() {
         return socketChannelClass;
     }
-    public RedisClientConfig setSocketChannelClass(Class<? extends DuplexChannel> socketChannelClass) {
+    public RedisClientConfig setSocketChannelClass(Class<? extends SocketChannel> socketChannelClass) {
         this.socketChannelClass = socketChannelClass;
         return this;
     }
@@ -260,18 +247,12 @@ public class RedisClientConfig {
         this.sslTruststorePassword = sslTruststorePassword;
         return this;
     }
-
-    @Deprecated
+    
     public boolean isSslEnableEndpointIdentification() {
-        return this.sslVerificationMode == SslVerificationMode.STRICT;
+        return sslEnableEndpointIdentification;
     }
-    @Deprecated
     public RedisClientConfig setSslEnableEndpointIdentification(boolean enableEndpointIdentification) {
-        if (enableEndpointIdentification) {
-            this.sslVerificationMode = SslVerificationMode.STRICT;
-        } else {
-            this.sslVerificationMode = SslVerificationMode.NONE;
-        }
+        this.sslEnableEndpointIdentification = enableEndpointIdentification;
         return this;
     }
 
@@ -328,39 +309,6 @@ public class RedisClientConfig {
     }
     public RedisClientConfig setKeepAlive(boolean keepAlive) {
         this.keepAlive = keepAlive;
-        return this;
-    }
-
-    public int getTcpKeepAliveCount() {
-        return tcpKeepAliveCount;
-    }
-    public RedisClientConfig setTcpKeepAliveCount(int tcpKeepAliveCount) {
-        this.tcpKeepAliveCount = tcpKeepAliveCount;
-        return this;
-    }
-
-    public int getTcpKeepAliveIdle() {
-        return tcpKeepAliveIdle;
-    }
-    public RedisClientConfig setTcpKeepAliveIdle(int tcpKeepAliveIdle) {
-        this.tcpKeepAliveIdle = tcpKeepAliveIdle;
-        return this;
-    }
-
-    public int getTcpKeepAliveInterval() {
-        return tcpKeepAliveInterval;
-    }
-    public RedisClientConfig setTcpKeepAliveInterval(int tcpKeepAliveInterval) {
-        this.tcpKeepAliveInterval = tcpKeepAliveInterval;
-        return this;
-    }
-
-    public int getTcpUserTimeout() {
-        return tcpUserTimeout;
-    }
-
-    public RedisClientConfig setTcpUserTimeout(int tcpUserTimeout) {
-        this.tcpUserTimeout = tcpUserTimeout;
         return this;
     }
 
@@ -454,41 +402,6 @@ public class RedisClientConfig {
 
     public RedisClientConfig setCommandMapper(CommandMapper commandMapper) {
         this.commandMapper = commandMapper;
-        return this;
-    }
-
-    public FailedNodeDetector getFailedNodeDetector() {
-        return failedNodeDetector;
-    }
-
-    public RedisClientConfig setFailedNodeDetector(FailedNodeDetector failedNodeDetector) {
-        this.failedNodeDetector = failedNodeDetector;
-        return this;
-    }
-
-    public Protocol getProtocol() {
-        return protocol;
-    }
-
-    public RedisClientConfig setProtocol(Protocol protocol) {
-        this.protocol = protocol;
-        return this;
-    }
-
-    public String getSslKeystoreType() {
-        return sslKeystoreType;
-    }
-
-    public RedisClientConfig setSslKeystoreType(String sslKeystoreType) {
-        this.sslKeystoreType = sslKeystoreType;
-        return this;
-    }
-
-    public SslVerificationMode getSslVerificationMode() {
-        return sslVerificationMode;
-    }
-    public RedisClientConfig setSslVerificationMode(SslVerificationMode sslVerificationMode) {
-        this.sslVerificationMode = sslVerificationMode;
         return this;
     }
 }

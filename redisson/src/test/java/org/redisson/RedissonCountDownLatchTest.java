@@ -3,18 +3,15 @@ package org.redisson;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RCountDownLatch;
-import org.testcontainers.shaded.org.awaitility.Awaitility;
 
-import java.time.Duration;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonCountDownLatchTest extends RedisDockerTest {
+public class RedissonCountDownLatchTest extends BaseTest {
 
     @Test
     public void testAwaitTimeout() throws InterruptedException {
@@ -77,40 +74,6 @@ public class RedissonCountDownLatchTest extends RedisDockerTest {
 
         executor.shutdown();
         Assertions.assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
-    }
-
-    @Test
-    public void testMultiAwait() throws InterruptedException {
-        RCountDownLatch latch = redisson.getCountDownLatch("latch");
-        latch.trySetCount(5);
-        AtomicInteger counter = new AtomicInteger();
-        for (int i = 0; i < 5; i++) {
-            Thread t = new Thread() {
-                @Override
-                public void run() {
-                    RCountDownLatch latch2 = redisson.getCountDownLatch("latch");
-                    latch2.awaitAsync(10L, TimeUnit.SECONDS).thenAccept(r -> {
-                        if (r) {
-                            counter.incrementAndGet();
-                        }
-                    });
-                }
-            };
-            t.start();
-        }
-
-        ScheduledExecutorService ee = Executors.newScheduledThreadPool(1);
-        for (int i = 0; i < 5; i++) {
-            ee.schedule(() -> {
-                RCountDownLatch latch2 = redisson.getCountDownLatch("latch");
-                latch2.countDown();
-            }, 1, TimeUnit.SECONDS);
-        }
-
-        Awaitility.await().atMost(Duration.ofSeconds(7)).until(() -> {
-            return latch.getCount() == 0;
-        });
-        assertThat(counter.get()).isEqualTo(5);
     }
 
     @Test
@@ -179,5 +142,44 @@ public class RedissonCountDownLatchTest extends RedisDockerTest {
     public void testCount() {
         RCountDownLatch latch = redisson.getCountDownLatch("latch");
         assertThat(latch.getCount()).isEqualTo(0);
+    }
+
+    @Test
+    public void testJavaCountDownLatch() throws InterruptedException {
+        CountDownLatch countDownLatch = new CountDownLatch(1);
+        new Thread(() -> {
+            try {
+                System.out.println("子线程开始睡眠");
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            System.out.println("子线程开始countDown");
+            countDownLatch.countDown();
+        }).start();
+
+        System.out.println("主线程开始等待");
+        countDownLatch.await();
+        System.out.println("主线程结束等待");
+    }
+
+    @Test
+    public void testRedissonCountDownLatch() throws InterruptedException {
+        RCountDownLatch testCountDown = redisson.getCountDownLatch("testCountDown");
+        testCountDown.trySetCount(1);
+        new Thread(() -> {
+            try {
+                System.out.println("子线程开始睡眠");
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            System.out.println("子线程开始countDown");
+            testCountDown.countDown();
+        }).start();
+
+        System.out.println("主线程开始等待");
+        testCountDown.await();
+        System.out.println("主线程结束等待");
     }
 }

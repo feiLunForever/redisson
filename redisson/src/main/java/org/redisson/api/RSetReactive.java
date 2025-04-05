@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -263,7 +263,6 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
     /**
      * Adds object event listener
      *
-     * @see org.redisson.api.listener.TrackingListener
      * @see org.redisson.api.listener.SetAddListener
      * @see org.redisson.api.listener.SetRemoveListener
      * @see org.redisson.api.listener.SetRemoveRandomListener

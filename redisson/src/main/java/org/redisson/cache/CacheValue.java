@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 package org.redisson.cache;
 
 import java.io.Serializable;
-import java.util.Objects;
 
 
 /**
@@ -43,12 +42,7 @@ public class CacheValue implements Serializable {
     public Object getValue() {
         return value;
     }
-
-    @Override
-    public int hashCode() {
-        return Objects.hashCode(value);
-    }
-
+    
     @Override
     public boolean equals(Object obj) {
         if (this == obj)

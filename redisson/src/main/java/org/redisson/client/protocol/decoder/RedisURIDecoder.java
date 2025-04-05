@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,12 +32,17 @@ public class RedisURIDecoder implements MultiDecoder<RedisURI> {
 
     private final String scheme;
 
-    public RedisURIDecoder(String scheme) {
-        this.scheme = scheme;
+    public RedisURIDecoder(boolean ssl) {
+        super();
+        if (ssl) {
+            scheme = "rediss";
+        } else {
+            scheme = "redis";
+        }
     }
 
     @Override
-    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state, long size) {
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
         return StringCodec.INSTANCE.getValueDecoder();
     }
     

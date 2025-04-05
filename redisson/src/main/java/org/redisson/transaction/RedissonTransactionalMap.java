@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -98,7 +98,7 @@ public class RedissonTransactionalMap<K, V> extends RedissonMap<K, V> {
     
     @Override
     public ScanResult<Map.Entry<Object, Object>> scanIterator(String name, RedisClient client,
-                                                              String startPos, String pattern, int count) {
+                                                   long startPos, String pattern, int count) {
         checkState();
         return transactionalMap.scanIterator(name, client, startPos, pattern, count);
     }
@@ -211,13 +211,7 @@ public class RedissonTransactionalMap<K, V> extends RedissonMap<K, V> {
         checkState();
         return transactionalMap.removeOperationAsync(key);
     }
-
-    @Override
-    public Set<K> keySet(String pattern, int count) {
-        checkState();
-        return transactionalMap.keySet(pattern, count);
-    }
-
+    
     @Override
     protected RFuture<Boolean> removeOperationAsync(Object key, Object value) {
         checkState();

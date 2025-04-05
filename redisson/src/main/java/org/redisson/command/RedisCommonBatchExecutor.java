@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,39 +56,23 @@ public class RedisCommonBatchExecutor extends RedisExecutor<Object, Void> {
                                     ConnectionManager connectionManager, BatchOptions options, Entry entry,
                                     AtomicInteger slots, RedissonObjectBuilder.ReferenceType referenceType, boolean noRetry) {
         super(entry.isReadOnlyMode(), source, null, null, null,
-                mainPromise, false, connectionManager, null, referenceType, noRetry,
-                retryAttempts(connectionManager, options),
-                retryInterval(connectionManager, options),
-                timeout(connectionManager, options),
-                false);
+                mainPromise, false, connectionManager, null, referenceType, noRetry);
         this.options = options;
         this.entry = entry;
         this.slots = slots;
-    }
-
-    private static int timeout(ConnectionManager connectionManager, BatchOptions options) {
-        int result = connectionManager.getServiceManager().getConfig().getTimeout();
+        
+        if (options.getRetryAttempts() >= 0) {
+            this.attempts = options.getRetryAttempts();
+        }
+        if (options.getRetryInterval() > 0) {
+            this.retryInterval  = options.getRetryInterval();
+        }
         if (options.getResponseTimeout() > 0) {
-            result = (int) options.getResponseTimeout();
+            this.responseTimeout = options.getResponseTimeout();
         }
         if (options.getSyncSlaves() > 0) {
-            result += (int) options.getSyncTimeout();
+            this.responseTimeout += options.getSyncTimeout();
         }
-        return result;
-    }
-
-    private static int retryInterval(ConnectionManager connectionManager, BatchOptions options) {
-        if (options.getRetryInterval() > 0) {
-            return (int) options.getRetryInterval();
-        }
-        return connectionManager.getServiceManager().getConfig().getRetryInterval();
-    }
-
-    private static int retryAttempts(ConnectionManager connectionManager, BatchOptions options) {
-        if (options.getRetryAttempts() >= 0) {
-            return options.getRetryAttempts();
-        }
-        return connectionManager.getServiceManager().getConfig().getRetryAttempts();
     }
 
     @Override
@@ -169,18 +153,17 @@ public class RedisCommonBatchExecutor extends RedisExecutor<Object, Void> {
     }
 
     protected boolean isWaitCommand(CommandData<?, ?> c) {
-        return c.getCommand().getName().equals(RedisCommands.WAIT.getName())
-                || c.getCommand().getName().equals(RedisCommands.WAITAOF.getName());
+        return c.getCommand().getName().equals(RedisCommands.WAIT.getName());
     }
 
     @Override
     protected void handleResult(CompletableFuture<Void> attemptPromise, CompletableFuture<RedisConnection> connectionFuture) throws ReflectiveOperationException {
         if (attemptPromise.isDone() && !attemptPromise.isCompletedExceptionally()) {
             if (slots.decrementAndGet() == 0) {
-                handleSuccess(mainPromise, connectionFuture, null);
+                mainPromise.complete(null);
             }
         } else {
-            handleError(connectionFuture, cause(attemptPromise));
+            mainPromise.completeExceptionally(cause(attemptPromise));
         }
     }
     

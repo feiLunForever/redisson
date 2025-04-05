@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,6 @@ public final class AggregationOptions {
     private List<GroupParams> groupByParams = Collections.emptyList();
     private List<SortedField> sortedByFields = Collections.emptyList();
     private Integer sortedByMax;
-    private boolean sortedByWithCount;
     private List<Expression> expressions = Collections.emptyList();
     private Integer offset;
     private Integer count;
@@ -69,11 +68,12 @@ public final class AggregationOptions {
     }
 
     public AggregationOptions loadAll() {
-        this.loadAll = true;
+        this.loadAll = loadAll;
         return this;
     }
 
     public AggregationOptions groupBy(GroupBy... groups) {
+        groupBy(GroupBy.fieldNames("123").reducers(Reducer.avg("12").as("23")));
         groupByParams = Arrays.stream(groups).map(g -> (GroupParams) g).collect(Collectors.toList());
         return this;
     }
@@ -85,19 +85,6 @@ public final class AggregationOptions {
 
     public AggregationOptions sortBy(int max, SortedField... fields) {
         sortedByMax = max;
-        sortedByFields = Arrays.asList(fields);
-        return this;
-    }
-
-    public AggregationOptions sortBy(boolean withCount, SortedField... fields) {
-        sortedByWithCount = withCount;
-        sortedByFields = Arrays.asList(fields);
-        return this;
-    }
-
-    public AggregationOptions sortBy(int max, boolean withCount, SortedField... fields) {
-        sortedByMax = max;
-        sortedByWithCount = withCount;
         sortedByFields = Arrays.asList(fields);
         return this;
     }
@@ -172,10 +159,6 @@ public final class AggregationOptions {
 
     public Integer getSortedByMax() {
         return sortedByMax;
-    }
-
-    public boolean isSortedByWithCount() {
-        return sortedByWithCount;
     }
 
     public List<Expression> getExpressions() {

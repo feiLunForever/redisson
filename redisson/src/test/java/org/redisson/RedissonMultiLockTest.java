@@ -1,10 +1,11 @@
 package org.redisson;
 
+import io.netty.channel.nio.NioEventLoopGroup;
 import org.junit.jupiter.api.Test;
+import org.redisson.RedisRunner.RedisProcess;
 import org.redisson.api.RLock;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
-import org.testcontainers.containers.GenericContainer;
 
 import java.io.IOException;
 import java.util.concurrent.ExecutorService;
@@ -16,34 +17,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-public class RedissonMultiLockTest extends RedisDockerTest {
+public class RedissonMultiLockTest {
 
     @Test
-    void testLockUnlock() {
-        RLock lock1 = redisson.getLock("lock1");
-        RLock lock2 = redisson.getLock("lock2");
-        RLock lock3 = redisson.getLock("lock3");
+    public void testWaitAndLeaseTimeouts() throws IOException, InterruptedException {
+        RedisProcess redis1 = redisTestMultilockInstance();
 
-        RLock lock = redisson.getMultiLock(lock1, lock2, lock3);
-        try {
-            lock.lock(10, TimeUnit.SECONDS);
-            assertThat(lock.isHeldByCurrentThread()).isTrue();
-            assertThat(lock.isHeldByThread(Thread.currentThread().getId())).isTrue();
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            lock.unlock();
-        }
-        assertThat(lock.isHeldByCurrentThread()).isFalse();
-        assertThat(lock.isHeldByThread(Thread.currentThread().getId())).isFalse();
-    }
+        Config config1 = new Config();
+        config1.useSingleServer().setAddress(redis1.getRedisServerAddressAndPort());
+        RedissonClient client = Redisson.create(config1);
 
-    @Test
-    public void testWaitAndLeaseTimeouts() throws InterruptedException {
-        RLock lock1 = redisson.getLock("lock1");
-        RLock lock2 = redisson.getLock("lock2");
-        RLock lock3 = redisson.getLock("lock3");
+        RLock lock1 = client.getLock("lock1");
+        RLock lock2 = client.getLock("lock2");
+        RLock lock3 = client.getLock("lock3");
 
         ExecutorService executor = Executors.newFixedThreadPool(10);
         AtomicInteger counter = new AtomicInteger();
@@ -65,25 +51,33 @@ public class RedissonMultiLockTest extends RedisDockerTest {
         assertThat(executor.awaitTermination(1, TimeUnit.SECONDS)).isTrue();
         assertThat(counter.get()).isEqualTo(1);
     }
-    
+
     @Test
-    public void testMultiThreads() throws InterruptedException {
-        RLock lock1 = redisson.getLock("lock1");
-        RLock lock2 = redisson.getLock("lock2");
-        RLock lock3 = redisson.getLock("lock3");
-        
+    public void testMultiThreads() throws IOException, InterruptedException {
+        RedisProcess redis1 = redisTestMultilockInstance();
+
+        Config config1 = new Config();
+        config1.useSingleServer().setAddress(redis1.getRedisServerAddressAndPort());
+        RedissonClient client = Redisson.create(config1);
+
+        RLock lock1 = client.getLock("lock1");
+        RLock lock2 = client.getLock("lock2");
+        RLock lock3 = client.getLock("lock3");
+
         Thread t = new Thread() {
             public void run() {
                 RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
                 lock.lock();
-                
+
                 try {
                     Thread.sleep(3000);
                 } catch (InterruptedException e) {
                 }
-                
+
                 lock.unlock();
-            };
+            }
+
+            ;
         };
         t.start();
         t.join(1000);
@@ -91,21 +85,23 @@ public class RedissonMultiLockTest extends RedisDockerTest {
         RedissonMultiLock lock = new RedissonMultiLock(lock1, lock2, lock3);
         lock.lock();
         lock.unlock();
+
+        client.shutdown();
+
+        assertThat(redis1.stop()).isEqualTo(0);
     }
-    
+
     @Test
     public void test() throws IOException, InterruptedException {
-        GenericContainer<?> redis1 = createRedis();
-        GenericContainer<?> redis2 = createRedis();
-        GenericContainer<?> redis3 = createRedis();
+        RedisProcess redis1 = redisTestMultilockInstance();
+        RedisProcess redis2 = redisTestMultilockInstance();
+        RedisProcess redis3 = redisTestMultilockInstance();
 
-        redis1.start();
-        redis2.start();
-        redis3.start();
+        NioEventLoopGroup group = new NioEventLoopGroup();
 
-        RedissonClient client1 = createClient(redis1);
-        RedissonClient client2 = createClient(redis2);
-        RedissonClient client3 = createClient(redis3);
+        RedissonClient client1 = createClient(group, redis1.getRedisServerAddressAndPort());
+        RedissonClient client2 = createClient(group, redis2.getRedisServerAddressAndPort());
+        RedissonClient client3 = createClient(group, redis3.getRedisServerAddressAndPort());
 
         final RLock lock1 = client1.getLock("lock1");
         final RLock lock2 = client2.getLock("lock2");
@@ -135,15 +131,42 @@ public class RedissonMultiLockTest extends RedisDockerTest {
         client1.shutdown();
         client2.shutdown();
         client3.shutdown();
-        
-        redis1.stop();
-        redis2.stop();
-        redis3.stop();
+
+        assertThat(redis1.stop()).isEqualTo(0);
+
+        assertThat(redis2.stop()).isEqualTo(0);
+
+        assertThat(redis3.stop()).isEqualTo(0);
     }
 
-    private RedissonClient createClient(GenericContainer<?> redis) {
-        Config config = createConfig(redis);
-        return Redisson.create(config);
+    private RedissonClient createClient(NioEventLoopGroup group, String host) {
+        Config config1 = new Config();
+        config1.useSingleServer().setAddress(host);
+        config1.setEventLoopGroup(group);
+        RedissonClient client1 = Redisson.create(config1);
+        client1.getKeys().flushdb();
+        return client1;
     }
-    
+
+    private RedisProcess redisTestMultilockInstance() throws IOException, InterruptedException {
+        return new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+    }
+
+    @Test
+    public void testMultiLock() {
+        //那使用场景呢，比如说某一个订单里面设计到多个商品，那么我们就需要扣减多个商品的库存，那就可以使用MultiLock，锁多个商品库存。
+        Config config = new Config();
+        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
+        RedissonClient redissonClient = Redisson.create(config);
+        RLock lock1 = redissonClient.getLock("lock1");
+        RLock lock2 = redissonClient.getLock("lock2");
+        RLock lock3 = redissonClient.getLock("lock3");
+        RedissonMultiLock multiLock = new RedissonMultiLock(lock1, lock2, lock3);
+        boolean b = multiLock.tryLock();
+        multiLock.unlock();
+    }
 }

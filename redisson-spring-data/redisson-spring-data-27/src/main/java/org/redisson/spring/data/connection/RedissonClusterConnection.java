@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package org.redisson.spring.data.connection;
 
+import io.netty.util.CharsetUtil;
 import org.redisson.api.BatchResult;
 import org.redisson.api.RFuture;
 import org.redisson.api.RedissonClient;
@@ -30,7 +31,6 @@ import org.redisson.client.protocol.decoder.ObjectDecoder;
 import org.redisson.client.protocol.decoder.ObjectListReplayDecoder;
 import org.redisson.client.protocol.decoder.StringMapDataDecoder;
 import org.redisson.command.CommandBatchService;
-import org.redisson.connection.ClientConnectionsEntry;
 import org.redisson.connection.MasterSlaveEntry;
 import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.data.redis.connection.ClusterInfo;
@@ -165,7 +165,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public void clusterAddSlots(RedisClusterNode node, int... slots) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         List<Integer> params = convert(slots);
         RFuture<Map<String, String>> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CLUSTER_ADDSLOTS, params.toArray());
         syncFuture(f);
@@ -194,7 +194,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public void clusterDeleteSlots(RedisClusterNode node, int... slots) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         List<Integer> params = convert(slots);
         RFuture<Long> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CLUSTER_DELSLOTS, params.toArray());
         syncFuture(f);
@@ -223,7 +223,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public void clusterSetSlot(RedisClusterNode node, int slot, AddSlots mode) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<Map<String, String>> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CLUSTER_SETSLOT, slot, mode);
         syncFuture(f);
     }
@@ -238,7 +238,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public void clusterReplicate(RedisClusterNode master, RedisClusterNode slave) {
-        RedisClient entry = getEntry(master);
+        MasterSlaveEntry entry = getEntry(master);
         RFuture<Long> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CLUSTER_REPLICATE, slave.getId());
         syncFuture(f);
     }
@@ -274,16 +274,14 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
     }
 
     private <T> T execute(RedisClusterNode node, RedisCommand<T> command) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<T> f = executorService.writeAsync(entry, StringCodec.INSTANCE, command);
         return syncFuture(f);
     }
 
-    protected RedisClient getEntry(RedisClusterNode node) {
-        InetSocketAddress addr = new InetSocketAddress(node.getHost(), node.getPort());
-        MasterSlaveEntry entry = executorService.getConnectionManager().getEntry(addr);
-        ClientConnectionsEntry e = entry.getEntry(addr);
-        return e.getClient();
+    protected MasterSlaveEntry getEntry(RedisClusterNode node) {
+        MasterSlaveEntry entry = executorService.getConnectionManager().getEntry(new InetSocketAddress(node.getHost(), node.getPort()));
+        return entry;
     }
 
     @Override
@@ -322,7 +320,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public Set<byte[]> keys(RedisClusterNode node, byte[] pattern) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<Collection<byte[]>> f = executorService.readAsync(entry, ByteArrayCodec.INSTANCE, KEYS, pattern);
         Collection<byte[]> keys = syncFuture(f);
         return new HashSet<>(keys);
@@ -330,21 +328,21 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public byte[] randomKey(RedisClusterNode node) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<byte[]> f = executorService.readRandomAsync(entry, ByteArrayCodec.INSTANCE, RedisCommands.RANDOM_KEY);
         return syncFuture(f);
     }
 
     @Override
     public void shutdown(RedisClusterNode node) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<Void> f = executorService.readAsync(entry, ByteArrayCodec.INSTANCE, RedisCommands.SHUTDOWN);
         syncFuture(f);
     }
 
     @Override
     public Properties getConfig(RedisClusterNode node, String pattern) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<List<String>> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CONFIG_GET, pattern);
         List<String> r = syncFuture(f);
         if (r != null) {
@@ -355,21 +353,21 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
 
     @Override
     public void setConfig(RedisClusterNode node, String param, String value) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<Void> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CONFIG_SET, param, value);
         syncFuture(f);
     }
 
     @Override
     public void resetConfigStats(RedisClusterNode node) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<Void> f = executorService.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.CONFIG_RESETSTAT);
         syncFuture(f);
     }
 
     @Override
     public Long time(RedisClusterNode node) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<Long> f = executorService.readAsync(entry, LongCodec.INSTANCE, RedisCommands.TIME_LONG);
         return syncFuture(f);
     }
@@ -378,7 +376,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
     
     @Override
     public List<RedisClientInfo> getClientList(RedisClusterNode node) {
-        RedisClient entry = getEntry(node);
+        MasterSlaveEntry entry = getEntry(node);
         RFuture<List<String>> f = executorService.readAsync(entry, StringCodec.INSTANCE, RedisCommands.CLIENT_LIST);
         List<String> list = syncFuture(f);
         return CONVERTER.convert(list.toArray(new String[list.size()]));
@@ -388,7 +386,8 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
     public Cursor<byte[]> scan(RedisClusterNode node, ScanOptions options) {
         return new ScanCursor<byte[]>(0, options) {
 
-            private RedisClient client = getEntry(node);
+            private RedisClient client;
+            private MasterSlaveEntry entry = getEntry(node);
             
             @Override
             protected ScanIteration<byte[]> doScan(long cursorId, ScanOptions options) {
@@ -396,15 +395,14 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
                     throw new UnsupportedOperationException("'SSCAN' cannot be called in pipeline / transaction mode.");
                 }
 
-                if (client == null) {
+                if (entry == null) {
                     return null;
                 }
-
+                
                 List<Object> args = new ArrayList<Object>();
-                if (cursorId == 101010101010101010L) {
-                    cursorId = 0;
-                }
-                args.add(Long.toUnsignedString(cursorId));
+                // to avoid negative value
+                cursorId = Math.max(cursorId, 0);
+                args.add(cursorId);
                 if (options.getPattern() != null) {
                     args.add("MATCH");
                     args.add(options.getPattern());
@@ -413,16 +411,16 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
                     args.add("COUNT");
                     args.add(options.getCount());
                 }
-
-                RFuture<ListScanResult<byte[]>> f = executorService.readAsync(client, ByteArrayCodec.INSTANCE, RedisCommands.SCAN, args.toArray());
+                
+                RFuture<ListScanResult<byte[]>> f = executorService.readAsync(client, entry, ByteArrayCodec.INSTANCE, RedisCommands.SCAN, args.toArray());
                 ListScanResult<byte[]> res = syncFuture(f);
-                String pos = res.getPos();
+                long pos = res.getPos();
                 client = res.getRedisClient();
-                if ("0".equals(pos)) {
-                    client = null;
+                if (pos == 0) {
+                    entry = null;
                 }
-
-                return new ScanIteration<byte[]>(Long.parseUnsignedLong(pos), res.getValues());
+                
+                return new ScanIteration<byte[]>(pos, res.getValues());
             }
         }.open();
     }
@@ -434,7 +432,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
             throw new InvalidDataAccessResourceUsageException("Clustered rename is not supported in a pipeline");
         }
 
-        if (executorService.getConnectionManager().calcSlot(oldName) == executorService.getConnectionManager().calcSlot(newName)) {
+        if (redisson.getConnectionManager().calcSlot(oldName) == redisson.getConnectionManager().calcSlot(newName)) {
             super.rename(oldName, newName);
             return;
         }
@@ -463,7 +461,7 @@ public class RedissonClusterConnection extends RedissonConnection implements Def
             throw new InvalidDataAccessResourceUsageException("Clustered rename is not supported in a pipeline");
         }
 
-        if (executorService.getConnectionManager().calcSlot(oldName) == executorService.getConnectionManager().calcSlot(newName)) {
+        if (redisson.getConnectionManager().calcSlot(oldName) == redisson.getConnectionManager().calcSlot(newName)) {
             return super.renameNX(oldName, newName);
         }
 

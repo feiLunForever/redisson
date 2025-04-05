@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,6 @@ import org.reactivestreams.Publisher;
 import org.redisson.RedissonKeys;
 import org.redisson.ScanResult;
 import org.redisson.api.RFuture;
-import org.redisson.api.RType;
-import org.redisson.api.options.KeysScanOptions;
-import org.redisson.api.options.KeysScanParams;
 import org.redisson.client.RedisClient;
 import org.redisson.connection.MasterSlaveEntry;
 import reactor.core.publisher.Flux;
@@ -57,21 +54,16 @@ public class RedissonKeysReactive {
     public Flux<String> getKeysByPattern(String pattern) {
         return getKeysByPattern(pattern, 10);
     }
-
+    
     public Flux<String> getKeysByPattern(String pattern, int count) {
-        return getKeys(KeysScanOptions.defaults().pattern(pattern).chunkSize(count));
-    }
-
-    public Flux<String> getKeys(KeysScanOptions options) {
-        KeysScanParams params = (KeysScanParams) options;
-        List<Publisher<String>> publishers = new ArrayList<>();
+        List<Publisher<String>> publishers = new ArrayList<Publisher<String>>();
         for (MasterSlaveEntry entry : commandExecutor.getConnectionManager().getEntrySet()) {
-            publishers.add(createKeysIterator(entry, params.getPattern(), params.getChunkSize(), params.getType()));
+            publishers.add(createKeysIterator(entry, pattern, count));
         }
         return Flux.merge(publishers);
     }
 
-    private Flux<String> createKeysIterator(MasterSlaveEntry entry, String pattern, int count, RType type) {
+    private Flux<String> createKeysIterator(final MasterSlaveEntry entry, final String pattern, final int count) {
         return Flux.create(emitter -> emitter.onRequest(new IteratorConsumer<String>(emitter) {
 
             @Override
@@ -80,8 +72,8 @@ public class RedissonKeysReactive {
             }
 
             @Override
-            protected RFuture<ScanResult<Object>> scanIterator(RedisClient client, String nextIterPos) {
-                return instance.scanIteratorAsync(client, entry, nextIterPos, pattern, count, type);
+            protected RFuture<ScanResult<Object>> scanIterator(RedisClient client, long nextIterPos) {
+                return instance.scanIteratorAsync(client, entry, nextIterPos, pattern, count);
             }
         }));
     }

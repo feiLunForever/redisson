@@ -2,15 +2,15 @@ package org.redisson;
 
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
-import org.redisson.api.Entry;
+import org.redisson.ClusterRunner.ClusterProcesses;
+import org.redisson.RedisRunner.RedisProcess;
 import org.redisson.api.RBlockingQueue;
 import org.redisson.api.RFuture;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
-import org.testcontainers.containers.ContainerState;
-import org.testcontainers.containers.GenericContainer;
+import org.redisson.connection.balancer.RandomLoadBalancer;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.redisson.RedisRunner.KEYSPACE_EVENTS_OPTIONS.l;
 
 public class RedissonBlockingQueueTest extends RedissonQueueTest {
 
@@ -40,19 +41,26 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
     }
     
     @Test
-    public void testPollWithBrokenConnection() throws InterruptedException, ExecutionException {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
-
-        Config config = createConfig(redis);
+    public void testPollWithBrokenConnection() throws IOException, InterruptedException, ExecutionException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
         RedissonClient redisson = Redisson.create(config);
-        RBlockingQueue<Integer> queue1 = getQueue(redisson);
+        final RBlockingQueue<Integer> queue1 = getQueue(redisson);
         RFuture<Integer> f = queue1.pollAsync(5, TimeUnit.SECONDS);
 
-        Assertions.assertThrows(TimeoutException.class, () -> {
+        try {
             f.toCompletableFuture().get(1, TimeUnit.SECONDS);
-        });
-        redis.stop();
+            Assertions.fail();
+        } catch (TimeoutException e) {
+            // skip
+        }
+        runner.stop();
 
         long start = System.currentTimeMillis();
         assertThat(f.get()).isNull();
@@ -62,20 +70,26 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
     }
     
     @Test
-    @Timeout(3)
-    public void testShortPoll() throws InterruptedException {
-        RBlockingQueue<Integer> queue = getQueue();
-        queue.poll(500, TimeUnit.MILLISECONDS);
-        queue.poll(10, TimeUnit.MICROSECONDS);
+    public void testShortPoll() {
+        Assertions.assertTimeout(Duration.ofSeconds(3), () -> {
+            RBlockingQueue<Integer> queue = getQueue();
+            queue.poll(500, TimeUnit.MILLISECONDS);
+            queue.poll(10, TimeUnit.MICROSECONDS);
+        });
     }
     
     @Test
-    public void testPollReattach() throws InterruptedException {
-        GenericContainer<?> redis = createRedis("--requirepass", "1234");
-        redis.start();
-
-        Config config = createConfig(redis);
-        config.useSingleServer().setPassword("1234");
+    public void testPollReattach() throws InterruptedException, IOException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .requirepass("1234")
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort())
+        .setPassword("1234");
         RedissonClient redisson = Redisson.create(config);
         
         final AtomicBoolean executed = new AtomicBoolean();
@@ -98,9 +112,15 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
         
         t.start();
         t.join(1000);
+        runner.stop();
 
-        restart(redis);
-
+        runner = new RedisRunner()
+                .port(runner.getRedisServerPort())
+                .nosave()
+                .randomDir()
+                .requirepass("1234")
+                .run();
+        
         Thread.sleep(1000);
 
         RBlockingQueue<Integer> queue1 = getQueue(redisson);
@@ -111,15 +131,19 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
         await().atMost(7, TimeUnit.SECONDS).untilTrue(executed);
         
         redisson.shutdown();
-        redis.stop();
+        runner.stop();
     }
     
     @Test
-    public void testPollAsyncReattach() throws InterruptedException, ExecutionException, TimeoutException {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
-
-        Config config = createConfig(redis);
+    public void testPollAsyncReattach() throws InterruptedException, IOException, ExecutionException, TimeoutException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
         RedissonClient redisson = Redisson.create(config);
         
         RBlockingQueue<Integer> queue1 = getQueue(redisson);
@@ -129,9 +153,13 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
         } catch (ExecutionException | TimeoutException e) {
             // skip
         }
+        runner.stop();
 
-        restart(redis);
-
+        runner = new RedisRunner()
+                .port(runner.getRedisServerPort())
+                .nosave()
+                .randomDir()
+                .run();
         queue1.put(123);
         
         // check connection rotation
@@ -144,123 +172,177 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
         assertThat(result).isEqualTo(123);
         
         redisson.shutdown();
-        redis.stop();
+        runner.stop();
     }
 
     @Test
-    public void testTakeReattachCluster() {
-        withNewCluster((nodes, redisson) -> {
-            List<RFuture<Integer>> futures = new ArrayList<>();
-            for (int i = 0; i < 10; i++) {
-                RBlockingQueue<Integer> queue = redisson.getBlockingQueue("queue" + i);
-                RFuture<Integer> f = queue.takeAsync();
-                futures.add(f);
-            }
+    public void testTakeReattachCluster() throws IOException, InterruptedException {
+        RedisRunner master1 = new RedisRunner().port(6890).randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().port(6891).randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().port(6892).randomDir().nosave();
+        RedisRunner slave1 = new RedisRunner().port(6900).randomDir().nosave();
+        RedisRunner slave2 = new RedisRunner().port(6901).randomDir().nosave();
+        RedisRunner slave3 = new RedisRunner().port(6902).randomDir().nosave();
 
-            try {
-                TimeUnit.SECONDS.sleep(1);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slave1)
+                .addNode(master2, slave2)
+                .addNode(master3, slave3);
+        ClusterProcesses process = clusterRunner.run();
 
-            List<ContainerState> masters = getMasterNodes(nodes);
-            stop(masters.get(0));
+        Thread.sleep(1000);
 
-            try {
-                Thread.sleep(TimeUnit.SECONDS.toMillis(30));
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+        Config config = new Config();
+        config.useClusterServers()
+        .setLoadBalancer(new RandomLoadBalancer())
+        .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
 
-            for (int i = 0; i < 10; i++) {
-                RBlockingQueue<Integer> queue = redisson.getBlockingQueue("queue" + i);
-                try {
-                    queue.put(i * 100);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
+        RedisProcess master = process.getNodes().stream().filter(x -> x.getRedisServerPort() == master1.getPort()).findFirst().get();
 
-            for (int i = 0; i < 10; i++) {
-                RFuture<Integer> f = futures.get(i);
-                try {
-                    f.toCompletableFuture().get(20, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    // skip
-                }
-                Integer result = f.toCompletableFuture().getNow(null);
-                assertThat(result).isEqualTo(i * 100);
-            }
-
-            redisson.shutdown();
-
-        });
-    }
-
-    @Test
-    public void testTakeReattachSentinel() throws InterruptedException {
-        withSentinel((nodes, config) -> {
-            RedissonClient redisson = Redisson.create(config);
-
-            RBlockingQueue<Integer> queue1 = getQueue(redisson);
-            RFuture<Integer> f = queue1.takeAsync();
+        List<RFuture<Integer>> futures = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            RBlockingQueue<Integer> queue = redisson.getBlockingQueue("queue" + i);
+            RFuture<Integer> f = queue.takeAsync();
             try {
                 f.toCompletableFuture().get(1, TimeUnit.SECONDS);
-            } catch (ExecutionException | TimeoutException | InterruptedException e) {
+            } catch (ExecutionException | TimeoutException e) {
                 // skip
             }
+            futures.add(f);
+        }
 
-            nodes.get(0).stop();
+        master.stop();
 
+        Thread.sleep(TimeUnit.SECONDS.toMillis(80));
+
+        for (int i = 0; i < 10; i++) {
+            RBlockingQueue<Integer> queue = redisson.getBlockingQueue("queue" + i);
+            queue.put(i*100);
+        }
+
+        for (int i = 0; i < 10; i++) {
+            RFuture<Integer> f = futures.get(i);
             try {
-                Thread.sleep(TimeUnit.SECONDS.toMillis(30));
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+                f.toCompletableFuture().get(20, TimeUnit.SECONDS);
+            } catch (ExecutionException | TimeoutException e) {
+                // skip
             }
+            Integer result = f.toCompletableFuture().getNow(null);
+            assertThat(result).isEqualTo(i*100);
+        }
 
-            try {
-                queue1.put(123);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-
-            // check connection rotation
-            for (int i = 0; i < 10; i++) {
-                try {
-                    queue1.put(i + 10000);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            }
-            assertThat(queue1.size()).isEqualTo(10);
-
-            Integer result = null;
-            try {
-                result = f.get(80, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-            assertThat(result).isEqualTo(123);
-
-            redisson.shutdown();
-        }, 2);
+        redisson.shutdown();
+        process.shutdown();
     }
 
     @Test
-    public void testTakeReattach() throws Exception {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
+    public void testTakeReattachSentinel() throws IOException, InterruptedException, TimeoutException, ExecutionException {
+        RedisRunner.RedisProcess master = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .run();
+        RedisRunner.RedisProcess slave1 = new RedisRunner()
+                .port(6380)
+                .nosave()
+                .randomDir()
+                .slaveof("127.0.0.1", 6379)
+                .run();
+        RedisRunner.RedisProcess slave2 = new RedisRunner()
+                .port(6381)
+                .nosave()
+                .randomDir()
+                .slaveof("127.0.0.1", 6379)
+                .run();
+        RedisRunner.RedisProcess sentinel1 = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .port(26379)
+                .sentinel()
+                .sentinelMonitor("myMaster", "127.0.0.1", 6379, 2)
+                .run();
+        RedisRunner.RedisProcess sentinel2 = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .port(26380)
+                .sentinel()
+                .sentinelMonitor("myMaster", "127.0.0.1", 6379, 2)
+                .run();
+        RedisRunner.RedisProcess sentinel3 = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .port(26381)
+                .sentinel()
+                .sentinelMonitor("myMaster", "127.0.0.1", 6379, 2)
+                .run();
 
-        Config config = createConfig(redis);
+        Thread.sleep(1000);
+
+        Config config = new Config();
+        config.useSentinelServers()
+            .setLoadBalancer(new RandomLoadBalancer())
+            .addSentinelAddress(sentinel3.getRedisServerAddressAndPort()).setMasterName("myMaster");
         RedissonClient redisson = Redisson.create(config);
 
         RBlockingQueue<Integer> queue1 = getQueue(redisson);
         RFuture<Integer> f = queue1.takeAsync();
-        Assertions.assertThrowsExactly(TimeoutException.class, () -> {
+        try {
             f.toCompletableFuture().get(1, TimeUnit.SECONDS);
-        });
+        } catch (ExecutionException | TimeoutException e) {
+            // skip
+        }
 
-        restart(redis);
+        master.stop();
+
+        Thread.sleep(TimeUnit.SECONDS.toMillis(60));
+
+        queue1.put(123);
+
+        // check connection rotation
+        for (int i = 0; i < 10; i++) {
+            queue1.put(i + 10000);
+        }
+        assertThat(queue1.size()).isEqualTo(10);
+
+        Integer result = f.get(80, TimeUnit.SECONDS);
+        assertThat(result).isEqualTo(123);
+
+        redisson.shutdown();
+        sentinel1.stop();
+        sentinel2.stop();
+        sentinel3.stop();
+        master.stop();
+        slave1.stop();
+        slave2.stop();
+
+    }
+
+    @Test
+    public void testTakeReattach() throws Exception {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
+
+        RBlockingQueue<Integer> queue1 = getQueue(redisson);
+        RFuture<Integer> f = queue1.takeAsync();
+        try {
+            f.toCompletableFuture().get(1, TimeUnit.SECONDS);
+        } catch (ExecutionException | TimeoutException e) {
+            e.printStackTrace();
+        }
+        runner.stop();
+
+        runner = new RedisRunner()
+                .port(runner.getRedisServerPort())
+                .nosave()
+                .randomDir()
+                .run();
         queue1.put(123);
         
         // check connection rotation
@@ -271,9 +353,9 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
         
         Integer result = f.get(1, TimeUnit.SECONDS);
         assertThat(result).isEqualTo(123);
-
+        runner.stop();
+        
         redisson.shutdown();
-        redis.stop();
     }
     
     @Test
@@ -362,26 +444,48 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
     }
 
     @Test
-    public void testPollFromAnyInCluster() {
-        testInCluster(redissonClient -> {
-            RBlockingQueue<Integer> queue1 = redisson.getBlockingQueue("queue:pollany");
-            Executors.newSingleThreadScheduledExecutor().schedule(() -> {
-                RBlockingQueue<Integer> queue2 = redisson.getBlockingQueue("queue:pollany1");
-                RBlockingQueue<Integer> queue3 = redisson.getBlockingQueue("queue:pollany2");
-                try {
-                    queue3.put(2);
-                    queue1.put(1);
-                    queue2.put(3);
-                } catch (InterruptedException e) {
-                    Assertions.fail();
-                }
-            }, 3, TimeUnit.SECONDS);
+    public void testPollFromAnyInCluster() throws Exception {
+        RedisRunner master1 = new RedisRunner().port(6890).randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().port(6891).randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().port(6892).randomDir().nosave();
+        RedisRunner slave1 = new RedisRunner().port(6900).randomDir().nosave();
+        RedisRunner slave2 = new RedisRunner().port(6901).randomDir().nosave();
+        RedisRunner slave3 = new RedisRunner().port(6902).randomDir().nosave();
+        
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slave1)
+                .addNode(master2, slave2)
+                .addNode(master3, slave3);
+        ClusterProcesses process = clusterRunner.run();
+        
+        Thread.sleep(5000); 
+        
+        Config config = new Config();
+        config.useClusterServers()
+        .setLoadBalancer(new RandomLoadBalancer())
+        .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
 
-            Awaitility.await().between(Duration.ofSeconds(2), Duration.ofSeconds(4)).untilAsserted(() -> {
-                int value = queue1.pollFromAny(4, TimeUnit.SECONDS, "queue:pollany1", "queue:pollany2");
-                assertThat(value).isEqualTo(1);
-            });
+        RBlockingQueue<Integer> queue1 = redisson.getBlockingQueue("queue:pollany");
+        Executors.newSingleThreadScheduledExecutor().schedule(() -> {
+            RBlockingQueue<Integer> queue2 = redisson.getBlockingQueue("queue:pollany1");
+            RBlockingQueue<Integer> queue3 = redisson.getBlockingQueue("queue:pollany2");
+            try {
+                queue3.put(2);
+                queue1.put(1);
+                queue2.put(3);
+            } catch (InterruptedException e) {
+                Assertions.fail();
+            }
+        }, 3, TimeUnit.SECONDS);
+
+        Awaitility.await().between(Duration.ofSeconds(2), Duration.ofSeconds(4)).untilAsserted(() -> {
+            int value = queue1.pollFromAny(4, TimeUnit.SECONDS, "queue:pollany1", "queue:pollany2");
+            assertThat(value).isEqualTo(1);
         });
+
+        redisson.shutdown();
+        process.shutdown();
     }
     
     @Test
@@ -405,55 +509,9 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
     }
 
     @Test
-    public void testPollFromAnyWithName() throws InterruptedException {
-        final RBlockingQueue<Integer> queue1 = redisson.getBlockingQueue("queue:pollany");
-        Executors.newSingleThreadScheduledExecutor().schedule(() -> {
-            RBlockingQueue<Integer> queue2 = redisson.getBlockingQueue("queue:pollany1");
-            RBlockingQueue<Integer> queue3 = redisson.getBlockingQueue("queue:pollany2");
-            Assertions.assertDoesNotThrow(() -> {
-                queue3.put(2);
-                queue1.put(1);
-                queue2.put(3);
-            });
-        }, 3, TimeUnit.SECONDS);
-
-        long s = System.currentTimeMillis();
-        Entry<String, Integer> r = queue1.pollFromAnyWithName(Duration.ofSeconds(4), "queue:pollany1", "queue:pollany2");
-
-        assertThat(r.getKey()).isEqualTo("queue:pollany2");
-        assertThat(r.getValue()).isEqualTo(2);
-        Assertions.assertTrue(System.currentTimeMillis() - s > 2000);
-    }
-
-    @Test
-    public void testPollLastFromAnyWithName() throws InterruptedException {
-        RBlockingQueue<Integer> queue1 = redisson.getBlockingQueue("queue:polLast");
-        RBlockingQueue<Integer> queue2 = redisson.getBlockingQueue("queue:polLast1");
-        RBlockingQueue<Integer> queue3 = redisson.getBlockingQueue("queue:polLast2");
-        queue3.put(1);
-        queue3.put(2);
-        queue3.put(3);
-        queue1.put(4);
-        queue1.put(5);
-        queue1.put(6);
-        queue2.put(7);
-
-        Entry<String, Integer> r = queue1.pollLastFromAnyWithName(Duration.ofSeconds(4), "queue:polLast1", "queue:polpolLast2");
-        assertThat(r.getKey()).isEqualTo("queue:polLast");
-        assertThat(r.getValue()).isEqualTo(6);
-
-        Entry<String, Integer> r2 = queue2.pollLastFromAnyWithName(Duration.ofSeconds(4), "queue:polLast", "queue:polLast2");
-        assertThat(r2.getKey()).isEqualTo("queue:polLast1");
-        assertThat(r2.getValue()).isEqualTo(7);
-
-        Entry<String, Integer> r3 = queue2.pollLastFromAnyWithName(Duration.ofSeconds(4), "queue:polLast2", "queue:polLast");
-        assertThat(r3.getKey()).isEqualTo("queue:polLast2");
-        assertThat(r3.getValue()).isEqualTo(3);
-
-    }
-
-    @Test
     public void testPollFirstFromAny() throws InterruptedException {
+//        Assumptions.assumeTrue(RedisRunner.getDefaultRedisServerInstance().getRedisVersion().compareTo("7.0.0") > 0);
+
         RBlockingQueue<Integer> queue1 = redisson.getBlockingQueue("queue:pollany");
         RBlockingQueue<Integer> queue2 = redisson.getBlockingQueue("queue:pollany1");
         RBlockingQueue<Integer> queue3 = redisson.getBlockingQueue("queue:pollany2");
@@ -478,18 +536,22 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
 
     @Test
     public void testPollLastFromAny() throws InterruptedException {
+        Assumptions.assumeTrue(RedisRunner.getDefaultRedisServerInstance().getRedisVersion().compareTo("7.0.0") > 0);
+
         RBlockingQueue<Integer> queue1 = redisson.getBlockingQueue("queue:pollany");
         RBlockingQueue<Integer> queue2 = redisson.getBlockingQueue("queue:pollany1");
         RBlockingQueue<Integer> queue3 = redisson.getBlockingQueue("queue:pollany2");
-        queue3.put(1);
-        queue3.put(2);
-        queue3.put(3);
-        queue1.put(4);
-        queue1.put(5);
-        queue1.put(6);
-        queue2.put(7);
-        queue2.put(8);
-        queue2.put(9);
+        Assertions.assertDoesNotThrow(() -> {
+            queue3.put(1);
+            queue3.put(2);
+            queue3.put(3);
+            queue1.put(4);
+            queue1.put(5);
+            queue1.put(6);
+            queue2.put(7);
+            queue2.put(8);
+            queue2.put(9);
+        });
 
         Map<String, List<Integer>> res = queue1.pollLastFromAny(Duration.ofSeconds(4), 2, "queue:pollany1", "queue:pollany2");
         assertThat(res.get("queue:pollany")).containsExactly(6, 5);
@@ -675,7 +737,7 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
     }
 
     @Test
-    public void testSubscribeOnElements() {
+    public void testSubscribeOnElements() throws InterruptedException {
         RBlockingQueue<Integer> q = redisson.getBlockingQueue("test");
         Set<Integer> values = new HashSet<>();
         int listnerId = q.subscribeOnElements(v -> {
@@ -686,7 +748,7 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
             q.add(i);
         }
 
-        Awaitility.await().atMost(Duration.ofSeconds(2)).until(() -> {
+        Awaitility.await().atMost(Duration.ofSeconds(1)).until(() -> {
             return values.size() == 10;
         });
 
@@ -694,6 +756,8 @@ public class RedissonBlockingQueueTest extends RedissonQueueTest {
 
         q.add(11);
         q.add(12);
+
+        Thread.sleep(1000);
 
         assertThat(values).hasSize(10);
     }

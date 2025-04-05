@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 package org.redisson.client.protocol;
-
-import org.redisson.misc.LogHelper;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -102,14 +100,7 @@ public class CommandsData implements QueueCommand {
 
     @Override
     public String toString() {
-        return "CommandsData{" +
-                "commands=" + LogHelper.toString(commands) +
-                ", promise=" + promise +
-                ", skipResult=" + skipResult +
-                ", atomic=" + atomic +
-                ", queued=" + queued +
-                ", syncSlaves=" + syncSlaves +
-                '}';
+        return "CommandsData [promise=" + promise + ", commands=" + commands + "]";
     }
 
     @Override

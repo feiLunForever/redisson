@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,17 @@
  */
 package org.redisson.reactive;
 
-import org.reactivestreams.Publisher;
-import org.redisson.BaseRedissonList;
-import org.redisson.RedissonList;
-import org.redisson.api.RFuture;
-import org.redisson.client.codec.Codec;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.FluxSink;
-
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
+
+import org.reactivestreams.Publisher;
+import org.redisson.RedissonList;
+import org.redisson.api.RFuture;
+import org.redisson.api.RListAsync;
+import org.redisson.client.codec.Codec;
+
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 
 /**
  * Distributed and concurrent implementation of {@link java.util.List}
@@ -35,9 +36,9 @@ import java.util.function.LongConsumer;
  */
 public class RedissonListReactive<V> {
 
-    private final BaseRedissonList<V> instance;
+    private final RListAsync<V> instance;
     
-    public RedissonListReactive(BaseRedissonList<V> instance) {
+    public RedissonListReactive(RListAsync<V> instance) {
         this.instance = instance;
     }
 

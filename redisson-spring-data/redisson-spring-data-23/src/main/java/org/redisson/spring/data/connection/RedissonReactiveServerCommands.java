@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import org.redisson.client.protocol.decoder.TimeLongObjectDecoder;
 import org.redisson.misc.CompletableFutureWrapper;
 import org.redisson.reactive.CommandReactiveExecutor;
 import org.springframework.data.redis.connection.ReactiveServerCommands;
-import org.springframework.data.redis.connection.convert.StringToRedisClientInfoConverter;
 import org.springframework.data.redis.core.types.RedisClientInfo;
 
 import reactor.core.publisher.Flux;
@@ -158,12 +157,9 @@ public class RedissonReactiveServerCommands extends RedissonBaseReactive impleme
         throw new UnsupportedOperationException();
     }
 
-    private static final StringToRedisClientInfoConverter CONVERTER = new StringToRedisClientInfoConverter();
-
     @Override
     public Flux<RedisClientInfo> getClientList() {
-        Mono<List<String>> m = read(null, StringCodec.INSTANCE, RedisCommands.CLIENT_LIST);
-        return m.flatMapMany(s -> Flux.fromIterable(CONVERTER.convert(s.toArray(new String[s.size()]))));
+        throw new UnsupportedOperationException();
     }
 
 }

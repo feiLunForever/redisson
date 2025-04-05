@@ -9,7 +9,7 @@ import java.util.Random;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonBitSetTest extends RedisDockerTest {
+public class RedissonBitSetTest extends BaseTest {
 
     @Test
     public void testUnsigned() {
@@ -91,20 +91,6 @@ public class RedissonBitSetTest extends RedisDockerTest {
         bs.clear();
         bs.set(0);
         assertThat(bs.length()).isEqualTo(1);
-        
-        // no exception happened, but return is unexpected.
-        bs.clear();
-        bs.set(0, 2);
-        bs.set(9);
-        bs.clear(9, 10);
-        assertThat(bs.length()).isEqualTo(2);
-        
-        // cause exception
-        bs.clear();
-        bs.set(7);
-        bs.set(9);
-        bs.clear(9, 10);
-        assertThat(bs.length()).isEqualTo(8);
     }
 
     @Test
@@ -210,16 +196,5 @@ public class RedissonBitSetTest extends RedisDockerTest {
         assertThat(bs1.size()).isEqualTo(16);
     }
 
-    @Test
-    public void testGetWithIndexes() {
-        RBitSet bitset = redisson.getBitSet("testbitset");
-        
-        bitset.set(4, 10);
-        boolean[] result = bitset.get(2, 4, 7, 8);
-        assertThat(result[0]).isFalse();
-        assertThat(result[1]).isTrue();
-        assertThat(result[2]).isTrue();
-        assertThat(result[3]).isTrue();
-    }
 
 }

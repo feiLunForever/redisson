@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,9 +29,9 @@ import java.util.Map;
  */
 public class BucketsDecoder implements MultiDecoder<Map<Object, Object>> {
 
-    private final List<Object> keys;
+    private final List<String> keys;
     
-    public BucketsDecoder(List<Object> keys) {
+    public BucketsDecoder(List<String> keys) {
         this.keys = keys;
     }
 

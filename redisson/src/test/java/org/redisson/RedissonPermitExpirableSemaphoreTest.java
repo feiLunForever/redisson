@@ -10,9 +10,8 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisException;
 import org.redisson.config.Config;
 
+import java.io.IOException;
 import java.time.Duration;
-import java.util.List;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -22,36 +21,43 @@ import static org.assertj.core.api.Assertions.assertThat;
 public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
 
     @Test
-    public void testGetInClusterNameMapper() {
-        testInCluster(client -> {
-            Config config = client.getConfig();
-            config.setSlavesSyncTimeout(2000);
-            config.useClusterServers()
-                    .setNameMapper(new NameMapper() {
-                        @Override
-                        public String map(String name) {
-                            return "test::" + name;
-                        }
+    public void testGetInClusterNameMapper() throws RedisRunner.FailedToStartRedisException, IOException, InterruptedException {
+        RedisRunner master1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slave3 = new RedisRunner().randomPort().randomDir().nosave();
 
-                        @Override
-                        public String unmap(String name) {
-                            return name.replace("test::", "");
-                        }
-                    });
-            RedissonClient redisson = Redisson.create(config);
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slave1)
+                .addNode(master2, slave2)
+                .addNode(master3, slave3);
+        ClusterRunner.ClusterProcesses process = clusterRunner.run();
 
-            RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("semaphore");
-            s.trySetPermits(1);
-            try {
-                String v = s.acquire();
-                s.release(v);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+        Config config = new Config();
+        config.useClusterServers()
+                .setNameMapper(new NameMapper() {
+                    @Override
+                    public String map(String name) {
+                        return "test::" + name;
+                    }
 
-            redisson.shutdown();
+                    @Override
+                    public String unmap(String name) {
+                        return name.replace("test::", "");
+                    }
+                })
+                .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
 
-        });
+        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("semaphore");
+        s.trySetPermits(1);
+        String v = s.acquire();
+        s.release(v);
+
+        redisson.shutdown();
+        process.shutdown();
     }
 
     @Test
@@ -320,17 +326,6 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
     }
 
     @Test
-    public void testBlockingAcquireMany() throws InterruptedException {
-        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
-        s.trySetPermits(10);
-        List<String> permitsIds = s.acquire(6);
-        assertThat(s.availablePermits()).isEqualTo(4);
-
-        s.release(permitsIds);
-        assertThat(s.availablePermits()).isEqualTo(10);
-    }
-
-    @Test
     public void testTryAcquire() throws InterruptedException {
         RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
         s.trySetPermits(1);
@@ -361,19 +356,6 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
         assertThat(permitId2).hasSize(32);
         assertThat(System.currentTimeMillis() - startTime).isBetween(450L, 600L);
         assertThat(s.availablePermits()).isEqualTo(0);
-    }
-
-    @Test
-    public void testTryAcquireMany() {
-        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
-        s.trySetPermits(10);
-        List<String> permitsIds = s.tryAcquire(4);
-        assertThat(permitsIds).hasSize(4);
-
-        List<String> permitsIds2 = s.tryAcquire(5);
-        assertThat(permitsIds2).hasSize(5);
-
-        assertThat(s.availablePermits()).isEqualTo(1);
     }
 
     @Test
@@ -458,152 +440,4 @@ public class RedissonPermitExpirableSemaphoreTest extends BaseConcurrentTest {
         });
     }
 
-    @Test
-    public void testRelease() throws InterruptedException {
-        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test");
-        semaphore.trySetPermits(10);
-
-        List<String> permitsIds = semaphore.acquire(6);
-        assertThat(permitsIds).hasSize(6);
-        assertThat(semaphore.availablePermits()).isEqualTo(4);
-
-        List<String> permitsIdsFirstPart = permitsIds.subList(0, 4);
-        semaphore.release(permitsIdsFirstPart);
-        assertThat(semaphore.availablePermits()).isEqualTo(8);
-
-        List<String> permitsIdsSecondPart = permitsIds.subList(4, 6);
-        semaphore.release(permitsIdsSecondPart);
-        assertThat(semaphore.availablePermits()).isEqualTo(10);
-
-        Assertions.assertThrows(RedisException.class, () -> semaphore.release(permitsIds));
-
-    }
-
-    @Test
-    public void testAcquireAsyncMany() throws ExecutionException, InterruptedException {
-        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test");
-        semaphore.trySetPermits(10);
-
-        RFuture<List<String>> permitsIds = semaphore.acquireAsync(6);
-
-        Awaitility.await().atMost(Duration.ofMillis(100)).pollDelay(Duration.ofMillis(10)).untilAsserted(() -> {
-            assertThat(permitsIds.isDone()).isTrue();
-        });
-        assertThat(permitsIds.get()).hasSize(6);
-        assertThat(semaphore.availablePermits()).isEqualTo(4);
-    }
-
-    @Test
-    public void testReleaseAsyncMany() throws InterruptedException, ExecutionException {
-        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test");
-        semaphore.trySetPermits(10);
-
-        List<String> permitsIds = semaphore.acquire(6);
-        assertThat(permitsIds).hasSize(6);
-        assertThat(semaphore.availablePermits()).isEqualTo(4);
-
-        List<String> permitsIdsFirstPart = permitsIds.subList(0, 4);
-        RFuture<Integer> releaseResult1 = semaphore.tryReleaseAsync(permitsIdsFirstPart);
-        Awaitility.await().atMost(Duration.ofMillis(100)).pollDelay(Duration.ofMillis(10)).untilAsserted(() -> {
-            assertThat(releaseResult1.isDone()).isTrue();
-        });
-        assertThat(releaseResult1.get()).isEqualTo(4);
-        assertThat(semaphore.availablePermits()).isEqualTo(8);
-
-        List<String> permitsIdsSecondPart = permitsIds.subList(4, 6);
-        RFuture<Integer> releaseResult2 = semaphore.tryReleaseAsync(permitsIdsSecondPart);
-        Awaitility.await().atMost(Duration.ofMillis(100)).pollDelay(Duration.ofMillis(10)).untilAsserted(() -> {
-            assertThat(releaseResult2.isDone()).isTrue();
-        });
-        assertThat(releaseResult2.get()).isEqualTo(2);
-        assertThat(semaphore.availablePermits()).isEqualTo(10);
-    }
-
-    @Test
-    public void testReleaseManyExpiredDoesNotThrow() throws InterruptedException, ExecutionException {
-        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test");
-        semaphore.trySetPermits(10);
-
-        List<String> permitsIds = semaphore.acquire(6, 100, TimeUnit.MILLISECONDS);
-        assertThat(permitsIds).hasSize(6);
-        assertThat(semaphore.availablePermits()).isEqualTo(4);
-        Thread.sleep(250);
-
-        semaphore.acquire(100, TimeUnit.MILLISECONDS);
-        assertThat(semaphore.availablePermits()).isEqualTo(9);
-        Awaitility.await().atMost(Duration.ofMillis(250)).pollDelay(Duration.ofMillis(10)).untilAsserted(() -> {
-            assertThat(semaphore.availablePermits()).isEqualTo(10);
-        });
-    }
-
-    @Test
-    public void testTryReleaseManyExpired() throws InterruptedException {
-        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
-        s.trySetPermits(10);
-        List<String> timedPermitsIds = s.tryAcquire(3, 100, 100, TimeUnit.MILLISECONDS);
-        List<String> infinitePermitsIds = s.tryAcquire(3);
-        assertThat(s.availablePermits()).isEqualTo(4);
-        
-        Thread.sleep(200);
-        
-        int released = s.tryRelease(infinitePermitsIds);
-        assertThat(released).isEqualTo(3);
-        assertThat(s.availablePermits()).isEqualTo(10);
-
-        released = s.tryRelease(timedPermitsIds);
-        assertThat(released).isEqualTo(0);
-        assertThat(s.availablePermits()).isEqualTo(10);
-    }
-
-    @Test
-    public void testReleaseManyNotExistOrExpired() throws InterruptedException {
-        RPermitExpirableSemaphore s = redisson.getPermitExpirableSemaphore("test");
-        s.trySetPermits(10);
-        List<String> timedPermitsIds = s.acquire(2, 100, TimeUnit.MILLISECONDS);
-        List<String> permitsIds = s.tryAcquire(8);
-
-        List<String> permitsIdsFirstPart = permitsIds.subList(0, 2);
-
-        int released = s.tryRelease(permitsIdsFirstPart);
-        assertThat(released).isEqualTo(2);
-        assertThat(s.availablePermits()).isEqualTo(2);
-
-        Thread.sleep(100);
-
-        Assertions.assertThrows(RedisException.class, () -> s.release(timedPermitsIds));
-        assertThat(s.availablePermits()).isEqualTo(4);
-
-        List<String> permitsIdsSecondPart = permitsIds.subList(2, 4);
-        permitsIdsSecondPart.addAll(permitsIdsFirstPart);
-        Assertions.assertThrows(RedisException.class, () -> s.release(permitsIdsSecondPart));
-        assertThat(s.availablePermits()).isEqualTo(4);
-
-        Assertions.assertThrows(RedisException.class, () -> s.release(List.of("1234")));
-        assertThat(s.availablePermits()).isEqualTo(4);
-
-        List<String> permitsIdsThirdPart = permitsIds.subList(4, 6);
-        permitsIdsThirdPart.add("4567");
-        Assertions.assertThrows(RedisException.class, () -> s.release(permitsIdsThirdPart));
-        assertThat(s.availablePermits()).isEqualTo(4);
-    }
-    
-    @Test
-    public void testGetLeaseTime() throws InterruptedException {
-        RPermitExpirableSemaphore semaphore = redisson.getPermitExpirableSemaphore("test");
-        semaphore.trySetPermits(1);
-        
-        Assertions.assertThrows(RedisException.class, () -> semaphore.getLeaseTime("1234"));
-        
-        String permitId = semaphore.acquire();
-        Assertions.assertEquals(-1, semaphore.getLeaseTime(permitId));
-        
-        semaphore.release(permitId);
-        permitId = semaphore.acquire(1100, TimeUnit.MILLISECONDS);
-        assertThat(permitId).isNotNull();
-        Thread.sleep(100);
-        assertThat(semaphore.getLeaseTime(permitId)).isLessThanOrEqualTo(1000);
-        Awaitility.await().atMost(Duration.ofMillis(1100)).untilAsserted(() -> {
-            assertThat(semaphore.availablePermits()).isEqualTo(1);
-        });
-    }
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import org.redisson.client.protocol.RedisCommand;
 import org.redisson.config.MasterSlaveServersConfig;
 import org.redisson.connection.ClientConnectionsEntry;
 import org.redisson.connection.ConnectionManager;
-import org.redisson.connection.ConnectionsHolder;
 import org.redisson.connection.MasterSlaveEntry;
 
 import java.util.concurrent.CompletableFuture;
@@ -33,23 +32,23 @@ import java.util.concurrent.CompletableFuture;
  *
  */
 public class MasterConnectionPool extends ConnectionPool<RedisConnection> {
-
     public MasterConnectionPool(MasterSlaveServersConfig config,
             ConnectionManager connectionManager, MasterSlaveEntry masterSlaveEntry) {
         super(config, connectionManager, masterSlaveEntry);
     }
 
     @Override
-    protected ConnectionsHolder<RedisConnection> getConnectionHolder(ClientConnectionsEntry entry, boolean trackChanges) {
-        if (trackChanges) {
-            return entry.getTrackedConnectionsHolder();
-        }
-        return entry.getConnectionsHolder();
+    public CompletableFuture<RedisConnection> get(RedisCommand<?> command) {
+        return acquireConnection(command, entries.peek());
+    }
+    
+    public void remove(ClientConnectionsEntry entry) {
+        entries.remove(entry);
     }
 
     @Override
-    public CompletableFuture<RedisConnection> get(RedisCommand<?> command, boolean trackChanges) {
-        return acquireConnection(command, masterSlaveEntry.getEntry(), trackChanges);
+    protected int getMinimumIdleSize(ClientConnectionsEntry entry) {
+        return config.getMasterConnectionMinimumIdleSize();
     }
 
 }

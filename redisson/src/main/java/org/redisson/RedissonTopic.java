@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,7 +32,8 @@ import org.redisson.misc.CompletableFutureWrapper;
 import org.redisson.pubsub.PubSubConnectionEntry;
 import org.redisson.pubsub.PublishSubscribeService;
 
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -45,41 +46,37 @@ public class RedissonTopic implements RTopic {
 
     final PublishSubscribeService subscribeService;
     final CommandAsyncExecutor commandExecutor;
-    final List<String> names = new ArrayList<>();
-    final List<ChannelName> channelNames = new ArrayList<>();
+    final String name;
+    final ChannelName channelName;
     final Codec codec;
 
-    public RedissonTopic(CommandAsyncExecutor commandExecutor, String... names) {
-        this(commandExecutor.getServiceManager().getCfg().getCodec(), commandExecutor, names);
+    public RedissonTopic(CommandAsyncExecutor commandExecutor, String name) {
+        this(commandExecutor.getServiceManager().getCfg().getCodec(), commandExecutor, name);
     }
 
-    public static RedissonTopic createRaw(CommandAsyncExecutor commandExecutor, String... names) {
-        return new RedissonTopic(commandExecutor.getServiceManager().getCfg().getCodec(), commandExecutor, NameMapper.direct(), names);
+    public static RedissonTopic createRaw(CommandAsyncExecutor commandExecutor, String name) {
+        return new RedissonTopic(commandExecutor.getServiceManager().getCfg().getCodec(), commandExecutor, NameMapper.direct(), name);
     }
 
-    public static RedissonTopic createRaw(Codec codec, CommandAsyncExecutor commandExecutor, String... names) {
-        return new RedissonTopic(codec, commandExecutor, NameMapper.direct(), names);
+    public static RedissonTopic createRaw(Codec codec, CommandAsyncExecutor commandExecutor, String name) {
+        return new RedissonTopic(codec, commandExecutor, NameMapper.direct(), name);
     }
 
-    public RedissonTopic(Codec codec, CommandAsyncExecutor commandExecutor, String... names) {
-        this(codec, commandExecutor, commandExecutor.getServiceManager().getConfig().getNameMapper(), names);
+    public RedissonTopic(Codec codec, CommandAsyncExecutor commandExecutor, String name) {
+        this(codec, commandExecutor, commandExecutor.getServiceManager().getConfig().getNameMapper(), name);
     }
 
-    public RedissonTopic(Codec codec, CommandAsyncExecutor commandExecutor, NameMapper nameMapper, String... names) {
+    public RedissonTopic(Codec codec, CommandAsyncExecutor commandExecutor, NameMapper nameMapper, String name) {
         this.commandExecutor = commandExecutor;
-        for (String name : names) {
-            name = nameMapper.map(name);
-            this.names.add(name);
-            ChannelName channelName = new ChannelName(name);
-            this.channelNames.add(channelName);
-        }
-        this.codec = commandExecutor.getServiceManager().getCodec(codec);
+        this.name = nameMapper.map(name);
+        this.channelName = new ChannelName(this.name);
+        this.codec = codec;
         this.subscribeService = commandExecutor.getConnectionManager().getSubscribeService();
     }
 
     @Override
     public List<String> getChannelNames() {
-        return names;
+        return Collections.singletonList(name);
     }
 
     @Override
@@ -88,12 +85,16 @@ public class RedissonTopic implements RTopic {
     }
 
     protected String getName() {
-        return names.get(0);
+        return name;
+    }
+
+    protected String getName(Object o) {
+        return name;
     }
 
     @Override
     public RFuture<Long> publishAsync(Object message) {
-        String name = getName();
+        String name = getName(message);
         return commandExecutor.writeAsync(name, StringCodec.INSTANCE, RedisCommands.PUBLISH, name, commandExecutor.encode(codec, message));
     }
 
@@ -111,31 +112,19 @@ public class RedissonTopic implements RTopic {
 
     @Override
     public RFuture<Integer> addListenerAsync(StatusListener listener) {
-        PubSubStatusListener pubSubListener = new PubSubStatusListener(listener, names.toArray(new String[0]));
+        PubSubStatusListener pubSubListener = new PubSubStatusListener(listener, name);
         return addListenerAsync(pubSubListener);
     }
 
     @Override
     public <M> RFuture<Integer> addListenerAsync(Class<M> type, MessageListener<? extends M> listener) {
-        PubSubMessageListener<M> pubSubListener = new PubSubMessageListener<>(type, (MessageListener<M>) listener, new HashSet<>(names));
+        PubSubMessageListener<M> pubSubListener = new PubSubMessageListener<>(type, (MessageListener<M>) listener, name);
         return addListenerAsync(pubSubListener);
     }
 
     protected RFuture<Integer> addListenerAsync(RedisPubSubListener<?> pubSubListener) {
-        CompletableFuture<List<PubSubConnectionEntry>> future = subscribeService.subscribe(codec, channelNames, pubSubListener);
+        CompletableFuture<PubSubConnectionEntry> future = subscribeService.subscribe(codec, channelName, pubSubListener);
         CompletableFuture<Integer> f = future.thenApply(res -> {
-            if (pubSubListener instanceof PubSubStatusListener
-                    && subscribeService.isMultiEntity(channelNames.get(0))) {
-                // replaced in subscribe() method
-                Optional<RedisPubSubListener<?>> l = res.stream()
-                        .flatMap(r -> r.getListeners(channelNames.get(0)).stream())
-                        .filter(r -> r instanceof PubSubStatusListener
-                                && ((PubSubStatusListener) pubSubListener).getListener() == ((PubSubStatusListener) r).getListener())
-                        .findAny();
-                if (l.isPresent()) {
-                    return System.identityHashCode(l.get());
-                }
-            }
             return System.identityHashCode(pubSubListener);
         });
         return new CompletableFutureWrapper<>(f);
@@ -148,7 +137,7 @@ public class RedissonTopic implements RTopic {
 
     @Override
     public RFuture<Void> removeAllListenersAsync() {
-        CompletableFuture<Void> f = subscribeService.removeAllListenersAsync(PubSubType.UNSUBSCRIBE, channelNames.toArray(new ChannelName[0]));
+        CompletableFuture<Void> f = subscribeService.removeAllListenersAsync(PubSubType.UNSUBSCRIBE, channelName);
         return new CompletableFutureWrapper<>(f);
     }
 
@@ -160,13 +149,13 @@ public class RedissonTopic implements RTopic {
 
     @Override
     public RFuture<Void> removeListenerAsync(MessageListener<?> listener) {
-        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.UNSUBSCRIBE, channelNames, listener);
+        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.UNSUBSCRIBE, channelName, listener);
         return new CompletableFutureWrapper<>(f);
     }
 
     @Override
     public RFuture<Void> removeListenerAsync(Integer... listenerIds) {
-        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.UNSUBSCRIBE, channelNames, listenerIds);
+        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.UNSUBSCRIBE, channelName, listenerIds);
         return new CompletableFutureWrapper<>(f);
     }
 
@@ -177,12 +166,12 @@ public class RedissonTopic implements RTopic {
 
     @Override
     public int countListeners() {
-        return subscribeService.countListeners(channelNames);
+        return subscribeService.countListeners(channelName);
     }
 
     @Override
     public RFuture<Long> countSubscribersAsync() {
-        return commandExecutor.writeAsync(names.get(0), LongCodec.INSTANCE, RedisCommands.PUBSUB_NUMSUB, names.toArray());
+        return commandExecutor.writeAsync(name, LongCodec.INSTANCE, RedisCommands.PUBSUB_NUMSUB, name);
     }
 
     @Override

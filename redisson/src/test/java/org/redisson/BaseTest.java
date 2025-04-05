@@ -8,7 +8,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
 
-@Deprecated
 public abstract class BaseTest {
     
     protected static RedissonClient redisson;
@@ -41,8 +40,11 @@ public abstract class BaseTest {
 //        config.setCodec(new MsgPackJacksonCodec());
 //        config.useSentinelServers().setMasterName("mymaster").addSentinelAddress("127.0.0.1:26379", "127.0.0.1:26389");
 //        config.useClusterServers().addNodeAddress("127.0.0.1:7004", "127.0.0.1:7001", "127.0.0.1:7000");
+//        config.useSingleServer()
+//                .setAddress(RedisRunner.getDefaultRedisServerBindAddressAndPort());
+
         config.useSingleServer()
-                .setAddress(RedisRunner.getDefaultRedisServerBindAddressAndPort());
+                .setAddress("redis://127.0.0.1:6379");
 //        .setPassword("mypass1");
 //        config.useMasterSlaveConnection()
 //        .setMasterAddress("127.0.0.1:6379")
@@ -57,6 +59,6 @@ public abstract class BaseTest {
     }
 
     protected boolean flushBetweenTests() {
-        return true;
+        return false;
     }
 }

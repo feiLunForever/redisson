@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -53,40 +53,24 @@ public class BaseRedisBatchExecutor<V, R> extends RedisExecutor<V, R> {
                                   boolean noRetry) {
         
         super(readOnlyMode, source, codec, command, params, mainPromise, ignoreRedirect, connectionManager,
-                objectBuilder, referenceType, noRetry,
-                retryAttempts(connectionManager, options),
-                retryInterval(connectionManager, options),
-                timeout(connectionManager, options),
-                false);
+                objectBuilder, referenceType, noRetry);
         this.commands = commands;
         this.options = options;
         this.index = index;
         this.executed = executed;
-    }
 
-    private static int timeout(ConnectionManager connectionManager, BatchOptions options) {
-        int result = connectionManager.getServiceManager().getConfig().getTimeout();
+        if (options.getRetryAttempts() >= 0) {
+            this.attempts = options.getRetryAttempts();
+        }
+        if (options.getRetryInterval() > 0) {
+            this.retryInterval  = options.getRetryInterval();
+        }
         if (options.getResponseTimeout() > 0) {
-            result = (int) options.getResponseTimeout();
+            this.responseTimeout = options.getResponseTimeout();
         }
         if (options.getSyncSlaves() > 0) {
-            result += (int) options.getSyncTimeout();
+            this.responseTimeout += options.getSyncTimeout();
         }
-        return result;
-    }
-
-    private static int retryInterval(ConnectionManager connectionManager, BatchOptions options) {
-        if (options.getRetryInterval() > 0) {
-            return (int) options.getRetryInterval();
-        }
-        return connectionManager.getServiceManager().getConfig().getRetryInterval();
-    }
-
-    private static int retryAttempts(ConnectionManager connectionManager, BatchOptions options) {
-        if (options.getRetryAttempts() >= 0) {
-            return options.getRetryAttempts();
-        }
-        return connectionManager.getServiceManager().getConfig().getRetryAttempts();
     }
 
     protected final void addBatchCommandData(Object[] batchParams) {

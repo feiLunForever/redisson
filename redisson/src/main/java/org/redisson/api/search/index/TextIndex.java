@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -77,18 +77,5 @@ public interface TextIndex extends FieldIndex {
      */
     TextIndex weight(Double weight);
 
-    /**
-     * Defines whether to index an empty value.
-     *
-     * @return options object
-     */
-    TextIndex indexEmpty();
-
-    /**
-     * Defines to index documents that don't contain this attribute
-     *
-     * @return options object
-     */
-    TextIndex indexMissing();
 
 }

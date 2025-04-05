@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,19 @@
  */
 package org.redisson.spring.cache;
 
-import org.redisson.RedissonObject;
 import org.redisson.api.RFuture;
 import org.redisson.api.RLock;
 import org.redisson.api.RMap;
 import org.redisson.api.RMapCache;
 import org.redisson.client.RedisException;
-import org.redisson.connection.ServiceManager;
 import org.springframework.cache.Cache;
 import org.springframework.cache.support.SimpleValueWrapper;
 
 import java.lang.reflect.Constructor;
 import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 
 /**
  *
@@ -119,7 +115,7 @@ public class RedissonCache implements Cache {
     @Override
     public void put(Object key, Object value) {
         if (!allowNullValues && value == null) {
-            map.fastRemove(key);
+            map.remove(key);
             return;
         }
         
@@ -160,60 +156,6 @@ public class RedissonCache implements Cache {
         long delta = map.fastRemove(key);
         addCacheEvictions(delta);
         return delta > 0;
-    }
-
-    public CompletableFuture<?> retrieve(Object key) {
-        RFuture<Object> f = map.getAsync(key);
-        return f.thenApply(value -> {
-            if (value == null) {
-                addCacheMiss();
-            } else {
-                addCacheHit();
-                if (value.getClass().getName().equals(NullValue.class.getName())) {
-                    return null;
-                }
-            }
-            return fromStoreValue(value);
-        }).toCompletableFuture();
-    }
-
-    public <T> CompletableFuture<T> retrieve(Object key, Supplier<CompletableFuture<T>> valueLoader) {
-        return retrieve(key).thenCompose(v -> {
-            if (v != null) {
-                return CompletableFuture.completedFuture((T) v);
-            }
-
-            ServiceManager sm = ((RedissonObject) map).getServiceManager();
-            long randomId = sm.generateValue();
-
-            RLock lock = map.getLock(key);
-            return lock.lockAsync(randomId).thenCompose(rr -> {
-                return map.getAsync(key)
-                        .thenCompose(r -> {
-                            if (r != null) {
-                                return CompletableFuture.completedFuture((T) r);
-                            }
-
-                            return valueLoader.get()
-                                    .thenCompose(lv -> {
-                                        Object sv = toStoreValue(lv);
-                                        RFuture<Boolean> f;
-                                        if (mapCache != null) {
-                                            f = mapCache.fastPutAsync(key, sv, config.getTTL(), TimeUnit.MILLISECONDS, config.getMaxIdleTime(), TimeUnit.MILLISECONDS);
-                                        } else {
-                                            f = map.fastPutAsync(key, sv);
-                                        }
-                                        return f.thenApply(rs -> {
-                                                    addCachePut();
-                                                    return lv;
-                                                });
-                            });
-                        })
-                        .whenComplete((r1, e) -> {
-                            lock.unlockAsync(randomId);
-                        });
-            });
-        });
     }
 
     @Override

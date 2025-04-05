@@ -1,6 +1,5 @@
 package org.redisson;
 
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RMultimapCache;
 
@@ -10,7 +9,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public abstract class RedissonBaseMultimapCacheTest extends RedisDockerTest {
+public abstract class RedissonBaseMultimapCacheTest extends BaseTest {
 
     abstract RMultimapCache<String, String> getMultimapCache(String name);
     
@@ -108,7 +107,7 @@ public abstract class RedissonBaseMultimapCacheTest extends RedisDockerTest {
     }
 
     @Test
-    public void testScheduler() {
+    public void testScheduler() throws InterruptedException {
         RMultimapCache<String, String> cache = getMultimapCache("simple33");
         assertThat(cache.put("1", "1")).isTrue();
         assertThat(cache.put("1", "2")).isTrue();
@@ -122,8 +121,11 @@ public abstract class RedissonBaseMultimapCacheTest extends RedisDockerTest {
         assertThat(cache.expireKey("3", 3, TimeUnit.SECONDS)).isFalse();
         
         assertThat(cache.size()).isEqualTo(6);
+        
+        Thread.sleep(10000);
 
-        Awaitility.await().atMost(Duration.ofSeconds(13)).untilAsserted(() -> assertThat(cache.size()).isZero());
+        assertThat(cache.size()).isZero();
+
     }
 
     @Test

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,13 @@
 package org.redisson.misc;
 
 import java.util.Arrays;
-import java.util.Objects;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public final class HashValue {
-
-    public static final HashValue EMPTY = new HashValue(new long[0]);
+public class HashValue {
 
     private final long[] value;
 
@@ -38,15 +35,25 @@ public final class HashValue {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        HashValue hashValue = (HashValue) o;
-        return Objects.deepEquals(value, hashValue.value);
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + Arrays.hashCode(value);
+        return result;
     }
 
     @Override
-    public int hashCode() {
-        return Arrays.hashCode(value);
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        HashValue other = (HashValue) obj;
+        if (!Arrays.equals(value, other.value))
+            return false;
+        return true;
     }
+    
 }

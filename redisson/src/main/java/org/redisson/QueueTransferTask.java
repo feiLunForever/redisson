@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,10 +58,10 @@ public abstract class QueueTransferTask {
         
     }
     
-    private volatile int usage = 1;
+    private int usage = 1;
     private final AtomicReference<TimeoutTask> lastTimeout = new AtomicReference<TimeoutTask>();
     private final ServiceManager serviceManager;
-
+    
     public QueueTransferTask(ServiceManager serviceManager) {
         super();
         this.serviceManager = serviceManager;
@@ -98,24 +98,16 @@ public abstract class QueueTransferTask {
     
     public void stop() {
         RTopic schedulerTopic = getTopic();
-        schedulerTopic.removeListener(messageListenerId, statusListenerId);
-
-        TimeoutTask oldTimeout = lastTimeout.get();
-        if (oldTimeout != null) {
-            oldTimeout.getTask().cancel();
-        }
+        schedulerTopic.removeListener(messageListenerId);
+        schedulerTopic.removeListener(statusListenerId);
     }
 
     private void scheduleTask(final Long startTime) {
-        if (usage == 0) {
-            return;
-        }
-
+        TimeoutTask oldTimeout = lastTimeout.get();
         if (startTime == null) {
             return;
         }
-
-        TimeoutTask oldTimeout = lastTimeout.get();
+        
         if (oldTimeout != null) {
             oldTimeout.getTask().cancel();
         }
@@ -133,8 +125,9 @@ public abstract class QueueTransferTask {
                     }
                 }
             }, delay, TimeUnit.MILLISECONDS);
-            
-            lastTimeout.compareAndSet(oldTimeout, new TimeoutTask(startTime, timeout));
+            if (!lastTimeout.compareAndSet(oldTimeout, new TimeoutTask(startTime, timeout))) {
+                timeout.cancel();
+            }
         } else {
             pushTask();
         }
@@ -145,14 +138,10 @@ public abstract class QueueTransferTask {
     protected abstract RFuture<Long> pushTaskAsync();
     
     private void pushTask() {
-        if (usage == 0) {
-            return;
-        }
-
         RFuture<Long> startTimeFuture = pushTaskAsync();
         startTimeFuture.whenComplete((res, e) -> {
             if (e != null) {
-                if (serviceManager.isShuttingDown(e)) {
+                if (e instanceof RedissonShutdownException) {
                     return;
                 }
                 log.error(e.getMessage(), e);

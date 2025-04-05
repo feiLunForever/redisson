@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ public final class IndexOptions {
     private String scoreField;
     private boolean noHL;
     private boolean noFreqs;
-    private List<String> stopwords;
+    private List<String> stopwords = Collections.emptyList();
     private boolean skipInitialScan;
     private IndexType on;
     private byte[] payloadField;

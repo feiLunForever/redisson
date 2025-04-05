@@ -1,43 +1,47 @@
 package org.redisson.hibernate;
 
-import org.hibernate.Session;
-import org.hibernate.query.Query;
-import org.hibernate.stat.Statistics;
-import org.hibernate.testing.orm.junit.BaseSessionFactoryFunctionalTest;
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.FixedHostPortGenericContainer;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Arrays;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.hibernate.Session;
+import org.hibernate.cfg.Configuration;
+import org.hibernate.cfg.Environment;
+import org.hibernate.query.Query;
+import org.hibernate.stat.Statistics;
+import org.hibernate.testing.junit4.BaseCoreFunctionalTestCase;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-@Testcontainers
-public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
-
-    @Container
-    public static final GenericContainer H2 = new FixedHostPortGenericContainer("oscarfonts/h2:latest")
-                                                .withFixedExposedPort(1521, 1521);
-
-    @Container
-    public static final GenericContainer REDIS = new FixedHostPortGenericContainer("redis:latest")
-                                                .withFixedExposedPort(6379, 6379);
+public class TransactionalTest extends BaseCoreFunctionalTestCase {
 
     @Override
     protected Class<?>[] getAnnotatedClasses() {
         return new Class[] { ItemTransactional.class};
     }
 
-    @BeforeEach
+    @Override
+    protected void configure(Configuration cfg) {
+        super.configure(cfg);
+        cfg.setProperty(Environment.DRIVER, org.h2.Driver.class.getName());
+        cfg.setProperty(Environment.URL, "jdbc:h2:mem:db1;DB_CLOSE_DELAY=-1;");
+        cfg.setProperty(Environment.USER, "sa");
+        cfg.setProperty(Environment.PASS, "");
+        cfg.setProperty(Environment.CACHE_REGION_PREFIX, "");
+        cfg.setProperty(Environment.GENERATE_STATISTICS, "true");
+
+        cfg.setProperty(Environment.USE_SECOND_LEVEL_CACHE, "true");
+        cfg.setProperty(Environment.USE_QUERY_CACHE, "true");
+        cfg.setProperty(Environment.CACHE_REGION_FACTORY, RedissonRegionFactory.class.getName());
+    }
+    
+    @Before
     public void before() {
         sessionFactory().getCache().evictAllRegions();
         sessionFactory().getStatistics().clear();
@@ -47,7 +51,7 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
     public void testQuery() {
         Statistics stats = sessionFactory().getStatistics();
 
-        Session s = sessionFactory().openSession();
+        Session s = openSession();
         s.beginTransaction();
         ItemTransactional item = new ItemTransactional("data");
         item.getEntries().addAll(Arrays.asList("a", "b", "c"));
@@ -55,7 +59,7 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.flush();
         s.getTransaction().commit();
         
-        s = sessionFactory().openSession();
+        s = openSession();
         s.beginTransaction();
         Query query = s.getNamedQuery("testQuery");
         query.setCacheable(true);
@@ -65,9 +69,9 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.getTransaction().commit();
         s.close();
         
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("myTestQuery").getPutCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("myTestQuery").getPutCount());
 
-        s = sessionFactory().openSession();
+        s = openSession();
         s.beginTransaction();
         Query query2 = s.getNamedQuery("testQuery");
         query2.setCacheable(true);
@@ -78,7 +82,7 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.getTransaction().commit();
         s.close();
         
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("myTestQuery").getHitCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("myTestQuery").getHitCount());
         
         stats.logSummary();
         
@@ -89,7 +93,7 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         Long id = null;
         
         Statistics stats = sessionFactory().getStatistics();
-        Session s = sessionFactory().openSession();
+        Session s = openSession();
         s.beginTransaction();
         ItemTransactional item = new ItemTransactional("data");
         item.getEntries().addAll(Arrays.asList("a", "b", "c"));
@@ -97,16 +101,16 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.flush();
         s.getTransaction().commit();
 
-        s = sessionFactory().openSession();
+        s = openSession();
         s.beginTransaction();
         item = (ItemTransactional) s.get(ItemTransactional.class, id);
         assertThat(item.getEntries()).containsExactly("a", "b", "c");
         s.getTransaction().commit();
         s.close();
 
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("item_entries").getPutCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("item_entries").getPutCount());
         
-        s = sessionFactory().openSession();
+        s = openSession();
         s.beginTransaction();
         item = (ItemTransactional) s.get(ItemTransactional.class, id);
         assertThat(item.getEntries()).containsExactly("a", "b", "c");
@@ -114,13 +118,13 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.getTransaction().commit();
         s.close();
         
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("item_entries").getHitCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("item_entries").getHitCount());
     }
     
     @Test
     public void testNaturalId() {
         Statistics stats = sessionFactory().getStatistics();
-        Session s = sessionFactory().openSession();
+        Session s = openSession();
         s.beginTransaction();
         ItemTransactional item = new ItemTransactional("data");
         item.setNid("123");
@@ -128,10 +132,10 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.flush();
         s.getTransaction().commit();
 
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("item").getPutCount());
-        Assertions.assertEquals(1, stats.getNaturalIdStatistics(ItemTransactional.class.getName()).getCachePutCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("item").getPutCount());
+        Assert.assertEquals(1, stats.getNaturalIdStatistics(ItemTransactional.class.getName()).getCachePutCount());
         
-        s = sessionFactory().openSession();
+        s = openSession();
         s.beginTransaction();
         item = (ItemTransactional) s.bySimpleNaturalId(ItemTransactional.class).load("123");
         assertThat(item).isNotNull();
@@ -139,8 +143,8 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.getTransaction().commit();
         s.close();
         
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("item").getHitCount());
-        Assertions.assertEquals(1, stats.getNaturalIdStatistics(ItemTransactional.class.getName()).getCacheHitCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("item").getHitCount());
+        Assert.assertEquals(1, stats.getNaturalIdStatistics(ItemTransactional.class.getName()).getCacheHitCount());
 
         sessionFactory().getStatistics().logSummary();
     }
@@ -149,16 +153,16 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
     public void testUpdateWithRefreshThenRollback() {
         Statistics stats = sessionFactory().getStatistics();
         Long id = null;
-        Session s = sessionFactory().openSession();
+        Session s = openSession();
         s.beginTransaction();
         ItemTransactional item = new ItemTransactional( "data" );
         id = (Long) s.save( item );
         s.flush();
         s.getTransaction().commit();
 
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("item").getPutCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("item").getPutCount());
 
-        s = sessionFactory().openSession();
+        s = openSession();
         s.beginTransaction();
         item = (ItemTransactional) s.get(ItemTransactional.class, id);
         item.setName("newdata");
@@ -169,7 +173,7 @@ public class TransactionalTest extends BaseSessionFactoryFunctionalTest {
         s.clear();
         s.close();
 
-        Assertions.assertEquals(1, stats.getDomainDataRegionStatistics("item").getHitCount());
+        Assert.assertEquals(1, stats.getDomainDataRegionStatistics("item").getHitCount());
     }
 
     

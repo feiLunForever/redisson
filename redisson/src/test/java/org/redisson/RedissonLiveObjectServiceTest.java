@@ -2,15 +2,15 @@ package org.redisson;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.redisson.api.*;
 import org.redisson.api.annotation.*;
 import org.redisson.api.condition.Conditions;
-import org.redisson.codec.JsonJacksonCodec;
+import org.redisson.config.Config;
 import org.redisson.liveobject.resolver.DefaultNamingScheme;
 import org.redisson.liveobject.resolver.LongGenerator;
 import org.redisson.liveobject.resolver.UUIDGenerator;
 
+import java.io.IOException;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
@@ -22,9 +22,8 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  *
  * @author Rui Gu (https://github.com/jackygurui)
- * @author Nikita Koksharov
  */
-public class RedissonLiveObjectServiceTest extends RedisDockerTest {
+public class RedissonLiveObjectServiceTest extends BaseTest {
 
     @REntity
     public static class TestEnum implements Serializable {
@@ -412,20 +411,6 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
     }
 
     @Test
-    public void testIndexRemoval() {
-        RLiveObjectService liveObjectService = redisson.getLiveObjectService();
-        TestIndexed item1 = new TestIndexed("1");
-        item1.setName1("testnma");
-        item1.setName2("gfgfgf");
-        item1.setNum1(123);
-        liveObjectService.persist(item1);
-        assertThat(redisson.getKeys().count()).isEqualTo(7);
-
-        liveObjectService.delete(TestIndexed.class, "1");
-        assertThat(redisson.getKeys().count()).isEqualTo(0);
-    }
-
-    @Test
     public void testFindIn() {
         RLiveObjectService s = redisson.getLiveObjectService();
         TestIndexed t1 = new TestIndexed("1");
@@ -601,50 +586,7 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
                                                                      Conditions.and(Conditions.eq("name1", "test41"), Conditions.lt("num1", 43))));
         assertThat(objects6.iterator().next().getId()).isEqualTo("4");
     }
-
-    @Test
-    public void testIndexRemoval2() throws InterruptedException {
-        RLiveObjectService liveObjectService = redisson.getLiveObjectService();
-
-        TestIndexed myEntity = new TestIndexed("id");
-        myEntity.setName1("1");
-
-        liveObjectService.persist(myEntity);
-
-        CountDownLatch latch = new CountDownLatch(1);
-
-        Runnable setterRunnable = () -> {
-            while (true) {
-                TestIndexed liveEntity = liveObjectService.get(TestIndexed.class, "id");
-                liveEntity.setName1("2");
-            }
-        };
-        Runnable getterRunnable = () -> {
-            int steps = 1;
-            while (true) {
-                final TestIndexed liveEntity = liveObjectService.get(TestIndexed.class, "id");
-                if (liveEntity.getName1() == null) {
-                    System.out.println("IS NULL ON STEP " + steps);
-                    latch.countDown();
-                }
-                steps++;
-            }
-        };
-
-        try  {
-            ExecutorService pool = Executors.newFixedThreadPool(2);
-            pool.submit(setterRunnable);
-            pool.submit(getterRunnable);
-
-            assertThat(latch.await(5, TimeUnit.SECONDS)).isFalse();
-
-            pool.shutdownNow();
-        }catch (Exception e) {
-
-        }
-    }
-
-
+    
     @Test
     public void testFindGe() {
         RLiveObjectService s = redisson.getLiveObjectService();
@@ -695,19 +637,6 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         Collection<TestIndexed> objects6 = s.find(TestIndexed.class, Conditions.or(Conditions.eq("name1", "test34"), 
                                                                      Conditions.and(Conditions.eq("name1", "test41"), Conditions.ge("num1", 42))));
         assertThat(objects6.iterator().next().getId()).isEqualTo("4");
-    }
-
-    @Test
-    public void testNullValue() {
-        TestClass ti = new TestClass("3");
-        TestClass liveObject = redisson.getLiveObjectService().merge(ti);
-
-        liveObject.setCode("test");
-        liveObject.setCode(null);
-        assertThat(liveObject.getCode()).isNull();
-
-        liveObject.setCode("123");
-        assertThat(liveObject.getCode()).isEqualTo("123");
     }
 
     @Test
@@ -787,37 +716,35 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
     }
 
     @Test
-    public void testPersistInCluster() {
-        testInCluster(redisson -> {
-            RLiveObjectService liveObjectService = redisson.getLiveObjectService();
-            TestIndexed item1 = new TestIndexed("1");
-            item1.setName1("name1");
-            item1.setName2("name2");
-            item1.setNum1(123);
+    public void testIndexUpdateCluster() throws IOException, InterruptedException {
+        RedisRunner master1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner master3 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slot1 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slot2 = new RedisRunner().randomPort().randomDir().nosave();
+        RedisRunner slot3 = new RedisRunner().randomPort().randomDir().nosave();
 
-            TestIndexed item2 = new TestIndexed("2");
+        ClusterRunner clusterRunner = new ClusterRunner()
+                .addNode(master1, slot1)
+                .addNode(master2, slot2)
+                .addNode(master3, slot3);
+        ClusterRunner.ClusterProcesses process = clusterRunner.run();
 
-            liveObjectService.persist(item1, item2);
-        });
-    }
+        Config config = new Config();
+        config.useClusterServers()
+        .addNodeAddress(process.getNodes().stream().findAny().get().getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
 
-    @Test
-    public void testIndexUpdateCluster() {
-        testInCluster(redisson -> {
-            RLiveObjectService s = redisson.getLiveObjectService();
-            TestIndexed t1 = new TestIndexed("1");
-            t1.setName1("test1");
-            t1 = s.persist(t1);
+        RLiveObjectService s = redisson.getLiveObjectService();
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setName1("test1");
+        t1 = s.persist(t1);
 
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+        Collection<TestIndexed> objects0 = s.find(TestIndexed.class, Conditions.eq("name1", "test1"));
+        assertThat(objects0.iterator().next().getId()).isEqualTo(t1.getId());
 
-            Collection<TestIndexed> objects0 = s.find(TestIndexed.class, Conditions.eq("name1", "test1"));
-            assertThat(objects0.iterator().next().getId()).isEqualTo(t1.getId());
-        });
+        redisson.shutdown();
+        process.shutdown();
     }
 
     @Test
@@ -1211,9 +1138,9 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         t = service.persist(t);
         assertTrue(Objects.equals(new ObjectId(9090909), t.getId()));
 
-        t = new TestClass(Byte.valueOf("0"));
+        t = new TestClass(new Byte("0"));
         t = service.persist(t);
-        assertEquals(Byte.valueOf("0"), Byte.valueOf(t.getId().toString()));
+        assertEquals(new Byte("0"), Byte.valueOf(t.getId().toString()));
 
         t = new TestClass((byte)90);
         assertEquals((byte) 90, Byte.parseByte(t.getId().toString()));
@@ -1423,7 +1350,6 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         assertNotNull(service.get(TestClass.class, new ObjectId(100)));
         persisted.setCode("CODE");
         assertNotNull(service.get(TestClass.class, new ObjectId(100)));
-        assertThat(service.get(TestClass.class, new ObjectId(101))).isNull();
     }
 
     @Test
@@ -1496,10 +1422,10 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
 
         TestClassID1 tc1 = new TestClassID1();
         tc1 = service.persist(tc1);
-        assertEquals(Long.valueOf(1), tc1.getName());
+        assertEquals(new Long(1), tc1.getName());
         TestClassID2 tc2 = new TestClassID2();
         tc2 = service.persist(tc2);
-        assertEquals(Long.valueOf(1), tc2.getName());
+        assertEquals(new Long(1), tc2.getName());
     }
 
     @REntity
@@ -1781,24 +1707,34 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
     }
 
     @Test
-    public void testExpirable() {
-        testWithParams(redisson -> {
-            RLiveObjectService service = redisson.getLiveObjectService();
-            TestIndexed myObject = new TestIndexed("123");
-            myObject = service.persist(myObject);
-            myObject.setName1("123345");
-            myObject.setNum1(455);
-            myObject.setColl(Arrays.asList(1L, 2L));
-            assertThat(redisson.getKeys().count()).isEqualTo(6);
-            assertTrue(service.asLiveObject(myObject).isExists());
-            service.asRMap(myObject).expire(Duration.ofSeconds(1));
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            assertThat(redisson.getKeys().count()).isZero();
-        }, NOTIFY_KEYSPACE_EVENTS, "KEA");
+    public void testExpirable() throws InterruptedException, IOException {
+        RedisRunner.RedisProcess instance = new RedisRunner()
+                .nosave()
+                .randomPort()
+                .randomDir()
+                .notifyKeyspaceEvents(
+                        RedisRunner.KEYSPACE_EVENTS_OPTIONS.E,
+                        RedisRunner.KEYSPACE_EVENTS_OPTIONS.x)
+                .run();
+
+        Config config = new Config();
+        config.useSingleServer().setAddress(instance.getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
+
+        RLiveObjectService service = redisson.getLiveObjectService();
+        TestIndexed myObject = new TestIndexed("123");
+        myObject = service.persist(myObject);
+        myObject.setName1("123345");
+        myObject.setNum1(455);
+        myObject.setColl(Arrays.asList(1L, 2L));
+        assertThat(redisson.getKeys().count()).isEqualTo(6);
+        assertTrue(service.asLiveObject(myObject).isExists());
+        service.asRMap(myObject).expire(Duration.ofSeconds(1));
+        Thread.sleep(2000);
+        assertThat(redisson.getKeys().count()).isZero();
+
+        redisson.shutdown();
+        instance.stop();
     }
 
     @Test
@@ -2050,8 +1986,7 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         
         @RId(generator = LongGenerator.class)
         private Long id;
-
-        @RObjectField(codec = JsonJacksonCodec.class)
+        
         private Map<String, Integer> map;
         
         public SetterEncapsulation() {
@@ -2422,63 +2357,53 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
     }
 
     @Test
-    @Timeout(10)
     public void testBatchedMerge() {
-        RLiveObjectService s = redisson.getLiveObjectService();
+        Assertions.assertTimeout(Duration.ofSeconds(10), () -> {
+            RLiveObjectService s = redisson.getLiveObjectService();
 
-        List<TestREntity> objects = new ArrayList<>();
-        int objectsAmount = 100000;
-        for (int i = 0; i < objectsAmount; i++) {
-            TestREntity e = new TestREntity();
-            e.setName("" + i);
-            e.setValue("value" + i);
-            objects.add(e);
-        }
-        List<Object> attachedObjects = s.merge(objects.toArray());
-        assertThat(attachedObjects).hasSize(objectsAmount);
+            List<TestREntity> objects = new ArrayList<>();
+            int objectsAmount = 100000;
+            for (int i = 0; i < objectsAmount; i++) {
+                TestREntity e = new TestREntity();
+                e.setName("" + i);
+                e.setValue("value" + i);
+                objects.add(e);
+            }
+            List<Object> attachedObjects = s.merge(objects.toArray());
+            assertThat(attachedObjects).hasSize(objectsAmount);
 
-        objects.clear();
-        for (int i = 0; i < objectsAmount; i++) {
-            TestREntity e = new TestREntity();
-            e.setName("" + i);
-            e.setValue("value" + i*1000);
-            objects.add(e);
-        }
-        List<Object> attachedObjects2 = s.merge(objects.toArray());
-        assertThat(attachedObjects2).hasSize(objectsAmount);
+            objects.clear();
+            for (int i = 0; i < objectsAmount; i++) {
+                TestREntity e = (TestREntity) attachedObjects.get(i);
+                e.setName("" + i);
+                e.setValue("value" + i*1000);
+                objects.add(e);
+            }
+            List<Object> attachedObjects2 = s.merge(objects.toArray());
+            assertThat(attachedObjects2).hasSize(objectsAmount);
 
-        TestREntity e = (TestREntity) attachedObjects2.get(1);
-        assertThat(e.getName()).isNotNull();
-        assertThat(e.getValue()).isEqualTo("value1000");
-
-        assertThat(redisson.getKeys().count()).isEqualTo(objectsAmount);
+            assertThat(redisson.getKeys().count()).isEqualTo(objectsAmount);
+        });
     }
 
     @Test
-    @Timeout(40)
     public void testBatchedPersist() {
-        RLiveObjectService s = redisson.getLiveObjectService();
+        Assertions.assertTimeout(Duration.ofSeconds(40), () -> {
+            RLiveObjectService s = redisson.getLiveObjectService();
 
-        List<TestREntity> objects = new ArrayList<>();
-        int objectsAmount = 800000;
-        for (int i = 0; i < objectsAmount; i++) {
-            TestREntity e = new TestREntity();
-            e.setName("" + i);
-            e.setValue("value" + i);
-            objects.add(e);
-        }
-        List<Object> attachedObjects = s.persist(objects.toArray());
-        assertThat(attachedObjects).hasSize(objectsAmount);
+            List<TestREntity> objects = new ArrayList<>();
+            int objectsAmount = 1000000;
+            for (int i = 0; i < objectsAmount; i++) {
+                TestREntity e = new TestREntity();
+                e.setName("" + i);
+                e.setValue("value" + i);
+                objects.add(e);
+            }
+            List<Object> attachedObjects = s.persist(objects.toArray());
+            assertThat(attachedObjects).hasSize(objectsAmount);
 
-        TestREntity e = (TestREntity) attachedObjects.get(0);
-        assertThat(e.getName()).isNotNull();
-        e.setValue("test");
-        assertThat(e.getValue()).isEqualTo("test");
-
-        TestREntity rr = s.get(TestREntity.class, "0");
-        assertThat(rr.getValue()).isEqualTo("test");
-
-        assertThat(redisson.getKeys().count()).isEqualTo(objectsAmount);
+            assertThat(redisson.getKeys().count()).isEqualTo(objectsAmount);
+        });
     }
 
     @Test

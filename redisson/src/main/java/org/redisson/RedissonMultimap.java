@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@ package org.redisson;
 
 import io.netty.buffer.ByteBuf;
 import org.redisson.api.*;
-import org.redisson.api.listener.MapPutListener;
-import org.redisson.api.listener.MapRemoveListener;
 import org.redisson.client.RedisClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.LongCodec;
@@ -72,11 +70,6 @@ public abstract class RedissonMultimap<K, V> extends RedissonExpirable implement
     }
 
     @Override
-    public RFuture<Boolean> copyAsync(List<Object> keys, int database, boolean replace) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public RLock getFairLock(K key) {
         String lockName = getLockByMapKey(key, "fairlock");
         return new RedissonFairLock(commandExecutor, lockName);
@@ -112,7 +105,7 @@ public abstract class RedissonMultimap<K, V> extends RedissonExpirable implement
         return new RedissonReadWriteLock(commandExecutor, lockName);
     }
     
-    String hash(ByteBuf objectState) {
+    protected String hash(ByteBuf objectState) {
         return Hash.hash128toBase64(objectState);
     }
 
@@ -403,7 +396,7 @@ public abstract class RedissonMultimap<K, V> extends RedissonExpirable implement
     }
     
     
-    MapScanResult<Object, Object> scanIterator(RedisClient client, String startPos) {
+    MapScanResult<Object, Object> scanIterator(RedisClient client, long startPos) {
         RFuture<MapScanResult<Object, Object>> f = commandExecutor.readAsync(client, getRawName(), new CompositeCodec(codec, StringCodec.INSTANCE, codec), RedisCommands.HSCAN, getRawName(), startPos);
         return get(f);
     }
@@ -428,7 +421,7 @@ public abstract class RedissonMultimap<K, V> extends RedissonExpirable implement
                 }
 
                 @Override
-                protected ScanResult<Entry<Object, Object>> iterator(RedisClient client, String nextIterPos) {
+                protected ScanResult<Entry<Object, Object>> iterator(RedisClient client, long nextIterPos) {
                     return RedissonMultimap.this.scanIterator(client, nextIterPos);
                 }
 
@@ -523,41 +516,6 @@ public abstract class RedissonMultimap<K, V> extends RedissonExpirable implement
             RedissonMultimap.this.clear();
         }
 
-    }
-
-    @Override
-    public int addListener(ObjectListener listener) {
-        if (listener instanceof MapPutListener) {
-            return addListener("__keyevent@*:hset", (MapPutListener) listener, MapPutListener::onPut);
-        }
-        if (listener instanceof MapRemoveListener) {
-            return addListener("__keyevent@*:hdel", (MapRemoveListener) listener, MapRemoveListener::onRemove);
-        }
-
-        return super.addListener(listener);
-    }
-
-    @Override
-    public RFuture<Integer> addListenerAsync(ObjectListener listener) {
-        if (listener instanceof MapPutListener) {
-            return addListenerAsync("__keyevent@*:hset", (MapPutListener) listener, MapPutListener::onPut);
-        }
-        if (listener instanceof MapRemoveListener) {
-            return addListenerAsync("__keyevent@*:hdel", (MapRemoveListener) listener, MapRemoveListener::onRemove);
-        }
-
-        return super.addListenerAsync(listener);
-    }
-
-    @Override
-    public void removeListener(int listenerId) {
-        removeListener(listenerId, "__keyevent@*:hset", "__keyevent@*:hdel");
-        super.removeListener(listenerId);
-    }
-
-    @Override
-    public RFuture<Void> removeListenerAsync(int listenerId) {
-        return removeListenerAsync(listenerId, "__keyevent@*:hset", "__keyevent@*:hdel");
     }
 
 

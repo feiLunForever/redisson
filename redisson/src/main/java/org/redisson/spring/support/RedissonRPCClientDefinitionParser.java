@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import org.w3c.dom.Element;
  *
  * @author Rui Gu (https://github.com/jackygurui)
  */
-@Deprecated
 public class RedissonRPCClientDefinitionParser
     extends AbstractRedissonNamespaceDefinitionParser {
 

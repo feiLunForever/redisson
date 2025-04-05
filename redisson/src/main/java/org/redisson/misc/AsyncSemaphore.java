@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
  */
 package org.redisson.misc;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
+import java.util.*;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -24,22 +24,28 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @author Nikita Koksharov
  *
  */
-public final class AsyncSemaphore {
-
-    private final ExecutorService executorService;
-    private final AtomicInteger tasksLatch = new AtomicInteger(1);
-    private final AtomicInteger stackSize = new AtomicInteger();
+public class AsyncSemaphore {
 
     private final AtomicInteger counter;
-    private final FastRemovalQueue<CompletableFuture<Void>> listeners = new FastRemovalQueue<>();
+    private final Queue<CompletableFuture<Void>> listeners = new ConcurrentLinkedQueue<>();
 
     public AsyncSemaphore(int permits) {
-        this(permits, null);
-    }
-
-    public AsyncSemaphore(int permits, ExecutorService executorService) {
         counter = new AtomicInteger(permits);
-        this.executorService = executorService;
+    }
+    
+    public boolean tryAcquire(long timeoutMillis) {
+        CompletableFuture<Void> f = acquire();
+        try {
+            f.get(timeoutMillis, TimeUnit.MILLISECONDS);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (ExecutionException e) {
+            throw new IllegalStateException(e);
+        } catch (TimeoutException e) {
+            return false;
+        }
     }
 
     public int queueSize() {
@@ -53,29 +59,12 @@ public final class AsyncSemaphore {
     public CompletableFuture<Void> acquire() {
         CompletableFuture<Void> future = new CompletableFuture<>();
         listeners.add(future);
-        future.whenComplete((r, e) -> {
-            if (e != null) {
-                listeners.remove(future);
-            }
-        });
-        tryForkAndRun();
+        tryRun();
         return future;
     }
 
-    private void tryForkAndRun() {
-        if (executorService != null) {
-            int val = tasksLatch.get();
-            if (stackSize.get() > 25 * val
-                    && tasksLatch.compareAndSet(val, val+1)) {
-                executorService.submit(() -> {
-                    tasksLatch.decrementAndGet();
-                    tryRun();
-                });
-                return;
-            }
-        }
-
-        tryRun();
+    public void acquire(Runnable listener) {
+        acquire().thenAccept(r -> listener.run());
     }
 
     private void tryRun() {
@@ -87,15 +76,7 @@ public final class AsyncSemaphore {
                     return;
                 }
 
-                boolean complete;
-                if (executorService != null) {
-                    stackSize.incrementAndGet();
-                    complete = future.complete(null);
-                    stackSize.decrementAndGet();
-                } else {
-                    complete = future.complete(null);
-                }
-                if (complete) {
+                if (future.complete(null)) {
                     return;
                 }
             }
@@ -112,7 +93,7 @@ public final class AsyncSemaphore {
 
     public void release() {
         counter.incrementAndGet();
-        tryForkAndRun();
+        tryRun();
     }
 
     @Override

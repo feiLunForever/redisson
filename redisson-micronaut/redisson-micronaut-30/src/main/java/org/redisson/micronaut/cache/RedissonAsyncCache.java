@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ public class RedissonAsyncCache implements AsyncCache<RMap<Object, Object>> {
         return map.getAsync(key)
                       .thenApply(v -> {
                           if (v != null) {
-                              return conversionService.convert(v, ConversionContext.of(requiredType));
+                              return Optional.of((T)conversionService.convert(v, ConversionContext.of(requiredType)));
                           }
                           return Optional.<T>empty();
                       })

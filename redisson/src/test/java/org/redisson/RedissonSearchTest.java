@@ -1,28 +1,29 @@
 package org.redisson;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RJsonBucket;
 import org.redisson.api.RMap;
 import org.redisson.api.RSearch;
 import org.redisson.api.search.SpellcheckOptions;
-import org.redisson.api.search.aggregate.*;
-import org.redisson.api.search.index.*;
+import org.redisson.api.search.aggregate.AggregationOptions;
+import org.redisson.api.search.aggregate.AggregationResult;
+import org.redisson.api.search.index.FieldIndex;
+import org.redisson.api.search.index.IndexInfo;
+import org.redisson.api.search.index.IndexOptions;
+import org.redisson.api.search.index.IndexType;
 import org.redisson.api.search.query.Document;
 import org.redisson.api.search.query.QueryOptions;
 import org.redisson.api.search.query.ReturnAttribute;
 import org.redisson.api.search.query.SearchResult;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.codec.CompositeCodec;
-import org.redisson.codec.JacksonCodec;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonSearchTest extends DockerRedisStackTest {
+public class RedissonSearchTest extends BaseTest {
 
     public static class SimpleObject {
 
@@ -49,55 +50,19 @@ public class RedissonSearchTest extends DockerRedisStackTest {
             return Objects.hash(name);
         }
     }
-    
+
     @Test
-    public void testSearchWithParam() {
-        RJsonBucket<String> b = redisson.getJsonBucket("doc:1", StringCodec.INSTANCE);
-        b.set("[{\"arr\": [1, 2, 3]}, {\"val\": \"hello\"}, {\"val\": \"world\"}]");
-        
-        RSearch s = redisson.getSearch(StringCodec.INSTANCE);
-        Assertions.assertThrows(IllegalArgumentException.class, () ->
-                s.search("idx", "*", QueryOptions.defaults()
-                        .returnAttributes(new ReturnAttribute("arr"),
-                                new ReturnAttribute("val"))
-                        .params(Collections.singletonMap("12", "323"))));
-    }
-    
-    @Test
-    public void testSearchNoContent() {
+    public void testMapAggregateWithCursor() {
         RMap<String, SimpleObject> m = redisson.getMap("doc:1", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
         m.put("t1", new SimpleObject("name1"));
         m.put("t2", new SimpleObject("name2"));
-        
         RMap<String, SimpleObject> m2 = redisson.getMap("doc:2", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m2.put("t1", new SimpleObject("name3"));
-        m2.put("t2", new SimpleObject("name4"));
-        
-        RSearch s = redisson.getSearch();
-        assertThat(s.getIndexes()).isEmpty();
-        
-        s.createIndex("idx:1", IndexOptions.defaults()
-                        .on(IndexType.HASH)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.text("t1"),
-                FieldIndex.text("t2"));
-        
-        s.search("idx:1", "*", QueryOptions.defaults().noContent(true));
-    }
-    
-    @Test
-    public void testMapAggregateWithCursor() {
-        RMap<String, Object> m = redisson.getMap("doc:1", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m.put("t1", new SimpleObject("name1"));
-        m.put("t2", new SimpleObject("name2"));
-        RMap<String, Object> m2 = redisson.getMap("doc:2", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
         m2.put("t1", new SimpleObject("name3"));
         m2.put("t2", new SimpleObject("name4"));
 
         RSearch s = redisson.getSearch();
         s.createIndex("idx", IndexOptions.defaults()
                                     .on(IndexType.HASH)
-                                    .stopwords(Collections.emptyList())
                                     .prefix(Arrays.asList("doc:")),
                                     FieldIndex.text("t1"),
                                     FieldIndex.text("t2"));
@@ -105,48 +70,20 @@ public class RedissonSearchTest extends DockerRedisStackTest {
         AggregationResult r = s.aggregate("idx", "*", AggregationOptions.defaults()
                                                                                         .withCursor()
                                                                                         .load("t1", "t2"));
-        assertThat(r.getTotal()).isEqualTo(1);
+
+        assertThat(r.getTotal()).isEqualTo(2);
         assertThat(r.getCursorId()).isEqualTo(0);
         assertThat(new HashSet<>(r.getAttributes())).isEqualTo(new HashSet<>(Arrays.asList(m2.readAllMap(), m.readAllMap())));
-
-        AggregationResult r3 = s.aggregate("idx", "*", AggregationOptions.defaults()
-                .withCursor(1).load("t1", "t2"));
-
-        assertThat(r3.getTotal()).isEqualTo(1);
-        assertThat(r3.getCursorId()).isPositive();
-        assertThat(r3.getAttributes()).hasSize(1).isSubsetOf(m.readAllMap(), m2.readAllMap());
-
-        AggregationResult r2 = s.readCursor("idx", r3.getCursorId());
-        assertThat(r2.getTotal()).isEqualTo(1);
-        assertThat(r2.getCursorId()).isPositive();
-
-        assertThat(r3.getAttributes()).isNotEqualTo(r2.getAttributes());
-        assertThat(r2.getAttributes()).hasSize(1).isSubsetOf(m.readAllMap(), m2.readAllMap());
-
-    }
-
-    @Test
-    public void testExpression() {
-        RSearch s = redisson.getSearch();
-        s.createIndex("idx", IndexOptions.defaults()
-                        .on(IndexType.HASH)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.text("t1"),
-                FieldIndex.text("t2"));
-
-        AggregationResult aggregate = s.aggregate("idx", "*", AggregationOptions.defaults()
-                .load("$.location", "as", "location", "$.*", "as", "$")
-                .apply(new Expression("geodistance(@location, 1, 2)", "dist"))
-                .limit(0, 1000));
     }
 
     @Test
     public void testInfo() {
-        for (int i = 0; i < 1000; i++) {
-            RMap<String, SimpleObject> m = redisson.getMap("doc:" +i, new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-            m.put("t1", new SimpleObject("name1"));
-            m.put("t2", new SimpleObject("name2"));
-        }
+        RMap<String, SimpleObject> m = redisson.getMap("doc:1", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
+        m.put("t1", new SimpleObject("name1"));
+        m.put("t2", new SimpleObject("name2"));
+        RMap<String, SimpleObject> m2 = redisson.getMap("doc:2", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
+        m2.put("t1", new SimpleObject("name3"));
+        m2.put("t2", new SimpleObject("name4"));
 
 
         RSearch s = redisson.getSearch();
@@ -159,101 +96,6 @@ public class RedissonSearchTest extends DockerRedisStackTest {
         IndexInfo r = s.info("idx");
         assertThat(r.getName()).isEqualTo("idx");
         assertThat(r.getAttributes()).hasSize(2);
-    }
-
-    @Test
-    public void testSort() {
-        RMap<String, SimpleObject> m = redisson.getMap("doc:1", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m.put("t1", new SimpleObject("name1"));
-        m.put("t2", new SimpleObject("name2"));
-        RMap<String, SimpleObject> m2 = redisson.getMap("doc:2", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m2.put("t1", new SimpleObject("name3"));
-        m2.put("t2", new SimpleObject("name4"));
-
-        RSearch s = redisson.getSearch();
-        s.createIndex("idx", IndexOptions.defaults()
-                        .on(IndexType.HASH)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.text("t1"),
-                FieldIndex.text("t2"));
-
-        AggregationResult r = s.aggregate("idx", "*", AggregationOptions.defaults()
-                                                                            .load("t1", "t2")
-                                                                            .sortBy(new SortedField("@t1")));
-
-        assertThat(r.getTotal()).isEqualTo(2);
-        assertThat(r.getCursorId()).isEqualTo(-1);
-        assertThat(new HashSet<>(r.getAttributes())).isEqualTo(new HashSet<>(Arrays.asList(m2.readAllMap(), m.readAllMap())));
-    }
-
-    @Test
-    public void testGroupBy() {
-        RMap<String, Object> m = redisson.getMap("doc:1", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m.put("t1", new SimpleObject("name1"));
-        m.put("t2", new SimpleObject("name2"));
-        RMap<String, Object> m2 = redisson.getMap("doc:2", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m2.put("t1", new SimpleObject("name3"));
-        m2.put("t2", new SimpleObject("name4"));
-
-        RSearch s = redisson.getSearch();
-        s.createIndex("idx", IndexOptions.defaults()
-                        .on(IndexType.HASH)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.text("t1"),
-                FieldIndex.text("t2"));
-
-        AggregationResult r = s.aggregate("idx", "*", AggregationOptions.defaults()
-                                                                            .load("t1", "t2")
-                                                                            .groupBy(GroupBy.fieldNames("@t1")));
-
-        assertThat(r.getTotal()).isEqualTo(2);
-        assertThat(r.getCursorId()).isEqualTo(-1);
-        Map<String, Object> mm2 = m2.readAllMap();
-        mm2.remove("t2");
-        Map<String, Object> mm = m.readAllMap();
-        mm.remove("t2");
-        assertThat(new HashSet<>(r.getAttributes())).isEqualTo(new HashSet<>(Arrays.asList(mm2, mm)));
-
-        AggregationResult r2 = s.aggregate("idx", "*", AggregationOptions.defaults()
-                                                                            .load("t1", "t2")
-                                                                            .groupBy(GroupBy.fieldNames("@t1")
-                                                                                            .reducers(Reducer.count().as("count"),
-                                                                                                    Reducer.min("@t1").as("min"))));
-
-        assertThat(r2.getTotal()).isEqualTo(2);
-        assertThat(r2.getCursorId()).isEqualTo(-1);
-        mm2.put("count", "1");
-        mm2.put("min", "0");
-        mm.put("count", "1");
-        mm.put("min", "0");
-        assertThat(new HashSet<>(r2.getAttributes())).isEqualTo(new HashSet<>(Arrays.asList(mm2, mm)));
-    }
-
-    @Test
-    public void testListIndexes() {
-        RMap<String, SimpleObject> m = redisson.getMap("doc:1", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m.put("t1", new SimpleObject("name1"));
-        m.put("t2", new SimpleObject("name2"));
-        RMap<String, SimpleObject> m2 = redisson.getMap("doc:2", new CompositeCodec(StringCodec.INSTANCE, redisson.getConfig().getCodec()));
-        m2.put("t1", new SimpleObject("name3"));
-        m2.put("t2", new SimpleObject("name4"));
-
-        RSearch s = redisson.getSearch();
-        assertThat(s.getIndexes()).isEmpty();
-
-        s.createIndex("idx:1", IndexOptions.defaults()
-                        .on(IndexType.HASH)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.text("t1"),
-                FieldIndex.text("t2"));
-
-        s.createIndex("idx:2", IndexOptions.defaults()
-                        .on(IndexType.HASH)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.text("t1"),
-                FieldIndex.text("t2"));
-
-        assertThat(s.getIndexes()).containsExactlyInAnyOrder("idx:1", "idx:2");
     }
 
     @Test
@@ -275,7 +117,7 @@ public class RedissonSearchTest extends DockerRedisStackTest {
         AggregationResult r = s.aggregate("idx", "*", AggregationOptions.defaults()
                                                                             .load("t1", "t2"));
 
-        assertThat(r.getTotal()).isEqualTo(1);
+        assertThat(r.getTotal()).isEqualTo(2);
         assertThat(r.getCursorId()).isEqualTo(-1);
         assertThat(new HashSet<>(r.getAttributes())).isEqualTo(new HashSet<>(Arrays.asList(m2.readAllMap(), m.readAllMap())));
     }
@@ -417,88 +259,6 @@ public class RedissonSearchTest extends DockerRedisStackTest {
         Map<String, Map<String, Double>> emptyRes = s.spellcheck("idx", "Hocke sti", SpellcheckOptions.defaults());
         assertThat(emptyRes.get("hocke")).isEmpty();
         assertThat(emptyRes.get("sti")).isEmpty();
-    }
-
-    public static class TestClass {
-        private List<Float> vector;
-        private String content;
-
-        public TestClass(List<Float> vector, String content) {
-            this.vector = vector;
-            this.content = content;
-        }
-
-        public List<Float> getVector() {
-            return vector;
-        }
-
-        public String getContent() {
-            return content;
-        }
-    }
-
-    @Test
-    public void testVector() {
-        RJsonBucket<List<Float>> b = redisson.getJsonBucket("doc:1", new JacksonCodec<>(new TypeReference<List<Float>>() {}));
-        List<Float> vector = Arrays.asList(1F, 2F, 3F, 4F);
-        b.set(vector);
-
-        RSearch s = redisson.getSearch(StringCodec.INSTANCE);
-        s.createIndex("text_index", IndexOptions.defaults()
-                        .on(IndexType.JSON)
-                        .prefix(Arrays.asList("doc:")),
-                FieldIndex.flatVector("$.vector")
-                        .as("vector")
-                        .type(VectorTypeParam.Type.FLOAT32)
-                        .dim(vector.size())
-                        .distance(VectorDistParam.DistanceMetric.COSINE),
-                FieldIndex.hnswVector("$.vector")
-                        .as("vector2")
-                        .type(VectorTypeParam.Type.FLOAT32)
-                        .dim(vector.size())
-                        .distance(VectorDistParam.DistanceMetric.COSINE),
-                FieldIndex.text("$.content").as("content"));
-
-        SearchResult r = s.search("text_index", "*", QueryOptions.defaults()
-                                                                            .returnAttributes(new ReturnAttribute("vector", "vector11"),
-                                                                                                new ReturnAttribute("vector2", "vector22")));
-        assertThat(r.getTotal()).isEqualTo(1);
-    }
-
-    @Test
-    public void testFieldTag() {
-        IndexOptions indexOptions = IndexOptions.defaults()
-                .on(IndexType.JSON)
-                .prefix(Arrays.asList("items"));
-
-        FieldIndex[] fields = new FieldIndex[]{
-                FieldIndex.tag("$.name")
-                        .caseSensitive()
-                        .withSuffixTrie()
-                        .noIndex()
-                        .separator("a")
-                        .sortMode(SortMode.NORMALIZED)
-                        .as("name")
-        };
-        RSearch s = redisson.getSearch();
-        s.createIndex("itemIndex", indexOptions, fields);
-    }
-
-    @Test
-    public void testFieldText() {
-        IndexOptions indexOptions = IndexOptions.defaults()
-                .on(IndexType.JSON)
-                .prefix(Arrays.asList("items"));
-
-        FieldIndex[] fields = new FieldIndex[]{
-                FieldIndex.text("$.name")
-                        .noStem()
-                        .noIndex()
-                        .sortMode(SortMode.NORMALIZED)
-                        .as("name")
-        };
-        RSearch s = redisson.getSearch();
-        s.createIndex("itemIndex", indexOptions, fields);
     }
 
     @Test

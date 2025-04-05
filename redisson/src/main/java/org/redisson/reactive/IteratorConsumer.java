@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@ public abstract class IteratorConsumer<V> implements LongConsumer {
 
     private final FluxSink<V> emitter;
 
-    private String nextIterPos = "0";
+    private long nextIterPos = 0;
     private RedisClient client;
 
     private final AtomicLong requested = new AtomicLong();
@@ -62,7 +62,7 @@ public abstract class IteratorConsumer<V> implements LongConsumer {
                 requested.decrementAndGet();
             }
 
-            if ("0".equals(nextIterPos) && !tryAgain()) {
+            if (nextIterPos == 0 && !tryAgain()) {
                 emitter.complete();
                 return;
             }
@@ -77,6 +77,6 @@ public abstract class IteratorConsumer<V> implements LongConsumer {
 
     protected abstract boolean tryAgain();
 
-    protected abstract RFuture<ScanResult<Object>> scanIterator(RedisClient client, String nextIterPos);
+    protected abstract RFuture<ScanResult<Object>> scanIterator(RedisClient client, long nextIterPos);
 
 }

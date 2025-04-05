@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,7 +33,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -46,7 +45,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author Nikita Koksharov
  *
  */
-public final class RedissonReliableTopic extends RedissonExpirable implements RReliableTopic {
+public class RedissonReliableTopic extends RedissonExpirable implements RReliableTopic {
 
     private static final Logger log = LoggerFactory.getLogger(RedissonReliableTopic.class);
 
@@ -75,24 +74,22 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
     private volatile Timeout timeoutTask;
     private final RStream<String, Object> stream;
     private final AtomicBoolean subscribed = new AtomicBoolean();
-    private final String timeoutName;
 
-    RedissonReliableTopic(Codec codec, CommandAsyncExecutor commandExecutor, String name, String subscriberId) {
+    public RedissonReliableTopic(Codec codec, CommandAsyncExecutor commandExecutor, String name, String subscriberId) {
         super(codec, commandExecutor, name);
         stream = new RedissonStream<>(new CompositeCodec(StringCodec.INSTANCE, codec), commandExecutor, name);
         if (subscriberId == null) {
             subscriberId = getServiceManager().generateId();
         }
         this.subscriberId = subscriberId;
-        this.timeoutName = getTimeout(getRawName());
     }
 
-    RedissonReliableTopic(CommandAsyncExecutor commandExecutor, String name, String subscriberId) {
+    public RedissonReliableTopic(CommandAsyncExecutor commandExecutor, String name, String subscriberId) {
         this(commandExecutor.getServiceManager().getCfg().getCodec(), commandExecutor, name, subscriberId);
     }
 
-    private String getTimeout(String name) {
-        return suffixName(name, "timeout");
+    private String getTimeout() {
+        return suffixName(getRawName(), "timeout");
     }
 
     @Override
@@ -153,15 +150,14 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
             return new CompletableFutureWrapper<>(id);
         }
 
+        renewExpiration();
+
         RFuture<Void> addFuture = commandExecutor.evalWriteNoRetryAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.EVAL_VOID,
                           "redis.call('zadd', KEYS[2], ARGV[3], ARGV[2]);" +
                                 "redis.call('xgroup', 'create', KEYS[1], ARGV[2], ARGV[1], 'MKSTREAM'); ",
-                Arrays.asList(getRawName(), timeoutName),
+                Arrays.asList(getRawName(), getTimeout()),
         StreamMessageId.ALL, subscriberId, System.currentTimeMillis() + getServiceManager().getCfg().getReliableTopicWatchdogTimeout());
-
         CompletionStage<String> f = addFuture.thenApply(r -> {
-            renewExpiration();
-
             poll(subscriberId);
             return id;
         });
@@ -186,22 +182,17 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
 
         ff.whenComplete((res, ex) -> {
             if (ex != null) {
-                if (getServiceManager().isShuttingDown(ex)) {
+                if (ex instanceof RedissonShutdownException) {
                     return;
                 }
 
-                if (ex.getCause() != null
-                        && ex.getCause().getMessage().contains("NOGROUP")) {
+                if (ex.getCause().getMessage().contains("NOGROUP")) {
                     return;
                 }
 
-                log.error("Unable to poll a new element. Subscriber id: {}", id, ex.getCause());
+                log.error(ex.getCause().getMessage(), ex.getCause());
 
                 getServiceManager().newTimeout(task -> {
-                    if (getServiceManager().isShuttingDown()) {
-                        return;
-                    }
-
                     poll(id);
                 }, 1, TimeUnit.SECONDS);
                 return;
@@ -249,12 +240,12 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
                                     + "redis.call('xtrim', KEYS[1], 'maxlen', #range); "
                                 + "end;"
                                 + "return r ~= false; ",
-                        Arrays.asList(getRawName(), timeoutName),
+                        Arrays.asList(getRawName(), getTimeout()),
                         id, time);
 
                 updateFuture.whenComplete((re, exc) -> {
                     if (exc != null) {
-                        if (getServiceManager().isShuttingDown(exc)) {
+                        if (exc instanceof RedissonShutdownException) {
                             return;
                         }
                         log.error("Unable to update subscriber status", exc);
@@ -274,35 +265,27 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
 
     @Override
     public RFuture<Boolean> deleteAsync() {
-        return deleteAsync(getRawName(), timeoutName);
+        return deleteAsync(getRawName(), getTimeout());
     }
 
     @Override
     public RFuture<Long> sizeInMemoryAsync() {
-        return super.sizeInMemoryAsync(Arrays.asList(getRawName(), timeoutName));
-    }
-
-    @Override
-    public RFuture<Boolean> copyAsync(List<Object> keys, int database, boolean replace) {
-        String newName = (String) keys.get(1);
-        List<Object> kks = Arrays.asList(getRawName(), timeoutName,
-                newName, getTimeout(newName));
-        return super.copyAsync(kks, database, replace);
+        return super.sizeInMemoryAsync(Arrays.asList(getRawName(), getTimeout()));
     }
 
     @Override
     public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
-        return super.expireAsync(timeToLive, timeUnit, param, getRawName(), timeoutName);
+        return super.expireAsync(timeToLive, timeUnit, param, getRawName(), getTimeout());
     }
 
     @Override
     protected RFuture<Boolean> expireAtAsync(long timestamp, String param, String... keys) {
-        return super.expireAtAsync(timestamp, param, getRawName(), timeoutName);
+        return super.expireAtAsync(timestamp, param, getRawName(), getTimeout());
     }
 
     @Override
     public RFuture<Boolean> clearExpireAsync() {
-        return clearExpireAsync(getRawName(), timeoutName);
+        return clearExpireAsync(getRawName(), getTimeout());
     }
 
     @Override
@@ -323,7 +306,7 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
         return commandExecutor.evalWriteAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.EVAL_VOID,
                 "redis.call('xgroup', 'destroy', KEYS[1], ARGV[1]); "
                       + "redis.call('zrem', KEYS[2], ARGV[1]); ",
-                Arrays.asList(getRawName(), timeoutName),
+                Arrays.asList(getRawName(), getTimeout()),
                 subscriberId);
     }
 
@@ -342,7 +325,7 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
 
     private void renewExpiration() {
         timeoutTask = getServiceManager().newTimeout(t -> {
-            if (!subscribed.get() || getServiceManager().isShuttingDown()) {
+            if (!subscribed.get()) {
                 return;
             }
 
@@ -352,7 +335,7 @@ public final class RedissonReliableTopic extends RedissonExpirable implements RR
                       + "end; "
                       + "redis.call('zadd', KEYS[1], ARGV[1], ARGV[2]); "
                       + "return 1; ",
-                Arrays.asList(timeoutName),
+                Arrays.asList(getTimeout()),
                 System.currentTimeMillis() + getServiceManager().getCfg().getReliableTopicWatchdogTimeout(), subscriberId);
             future.whenComplete((res, e) -> {
                 if (e != null) {

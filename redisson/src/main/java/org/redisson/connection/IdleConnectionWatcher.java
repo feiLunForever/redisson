@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class IdleConnectionWatcher {
@@ -42,18 +43,18 @@ public class IdleConnectionWatcher {
 
         private final int minimumAmount;
         private final int maximumAmount;
-
-        private final ConnectionsHolder<? extends RedisConnection> holder;
         private final AsyncSemaphore freeConnectionsCounter;
         private final Collection<? extends RedisConnection> connections;
+        private final Function<RedisConnection, Boolean> deleteHandler;
 
-        public Entry(int minimumAmount, int maximumAmount, ConnectionsHolder<? extends RedisConnection> holder) {
+        public Entry(int minimumAmount, int maximumAmount, Collection<? extends RedisConnection> connections,
+                     AsyncSemaphore freeConnectionsCounter, Function<RedisConnection, Boolean> deleteHandler) {
             super();
             this.minimumAmount = minimumAmount;
             this.maximumAmount = maximumAmount;
-            this.connections = holder.getFreeConnections();
-            this.freeConnectionsCounter = holder.getFreeConnectionsCounter();
-            this.holder = holder;
+            this.connections = connections;
+            this.freeConnectionsCounter = freeConnectionsCounter;
+            this.deleteHandler = deleteHandler;
         }
 
     };
@@ -81,7 +82,7 @@ public class IdleConnectionWatcher {
 
                     if (timeInPool > config.getIdleConnectionTimeout()
                             && validateAmount(entry)
-                                && entry.holder.remove(c)) {
+                                && entry.deleteHandler.apply(c)) {
                         ChannelFuture future = c.closeIdleAsync();
                         future.addListener((FutureListener<Void>) f ->
                                 log.debug("Connection {} has been closed due to idle timeout. Not used for {} ms", c.getChannel(), timeInPool));
@@ -99,9 +100,10 @@ public class IdleConnectionWatcher {
         entries.remove(entry);
     }
 
-    public void add(ClientConnectionsEntry entry, int minimumAmount, int maximumAmount, ConnectionsHolder<? extends RedisConnection> holder) {
+    public void add(ClientConnectionsEntry entry, int minimumAmount, int maximumAmount, Collection<? extends RedisConnection> connections,
+                    AsyncSemaphore freeConnectionsCounter, Function<RedisConnection, Boolean> deleteHandler) {
         List<Entry> list = entries.computeIfAbsent(entry, k -> new ArrayList<>(2));
-        list.add(new Entry(minimumAmount, maximumAmount, holder));
+        list.add(new Entry(minimumAmount, maximumAmount, connections, freeConnectionsCounter, deleteHandler));
     }
     
     public void stop() {

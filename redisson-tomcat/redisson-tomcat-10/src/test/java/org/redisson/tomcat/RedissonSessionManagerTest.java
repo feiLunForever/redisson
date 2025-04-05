@@ -7,25 +7,18 @@ import org.apache.http.impl.client.BasicCookieStore;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
+import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
-import org.testcontainers.containers.FixedHostPortGenericContainer;
-import org.testcontainers.containers.GenericContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
+import org.redisson.config.Config;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 
-@Testcontainers
 public class RedissonSessionManagerTest {
-
-    @Container
-    public static final GenericContainer REDIS = new FixedHostPortGenericContainer("redis:latest")
-                                                        .withFixedExposedPort(6379, 6379);
 
     public static Iterable<Object[]> data() {
         return Arrays.asList(new Object[][] {
@@ -41,34 +34,7 @@ public class RedissonSessionManagerTest {
         Files.deleteIfExists(Paths.get(basePath + "context.xml"));
         Files.copy(Paths.get(basePath + contextName), Paths.get(basePath + "context.xml"));
     }
-    
-    @ParameterizedTest
-    @ValueSource(strings = {"context_memory.xml", "context_memory_after_request.xml"})
-    public void testUpdateMaxInactiveInterval(String contextName) throws Exception {
-        prepare(contextName);
-        TomcatServer server1 = new TomcatServer("myapp", 8080, "src/test/");
-        TomcatServer server2 = new TomcatServer("myapp", 8081, "src/test/");
-        try {
-            server1.start();
-            server2.start();
-            
-            Executor executor = Executor.newInstance();
-            BasicCookieStore cookieStore = new BasicCookieStore();
-            executor.use(cookieStore);
-            
-            write(8080, executor, "test", "from_server1");
-            write(8081, executor, "test", "from_server2");
-            
-            writeInternal(8080, executor, 3000);
-            readInternal(8081, executor, 3000);
-            
-        } finally {
-            Executor.closeIdleConnections();
-            server1.stop();
-            server2.stop();
-        }
-    }
-    
+
     @ParameterizedTest
     @MethodSource("data")
     public void testUpdateTwoServers_readValue(String contextName) throws Exception {
@@ -87,7 +53,7 @@ public class RedissonSessionManagerTest {
             write(8081, executor, "test", "from_server2");
 
             read(8080, executor, "test", "from_server2");
-            read(8081, executor, "test", "from_server2");
+            read(8080, executor, "test", "from_server2");
 
         } finally {
             Executor.closeIdleConnections();
@@ -118,7 +84,7 @@ public class RedissonSessionManagerTest {
         TomcatServer server3 = new TomcatServer("myapp", 8082, "src/test/");
         server3.start();
 
-        invalidate(8080, executor);
+        invalidate(executor);
 
         Thread.sleep(500);
 
@@ -129,22 +95,6 @@ public class RedissonSessionManagerTest {
         server1.stop();
         server2.stop();
         server3.stop();
-    }
-
-    @ParameterizedTest
-    @MethodSource("data")
-    public void testCollection(String contextName) throws Exception {
-        prepare(contextName);
-        // start the server at http://localhost:8080/myapp
-        TomcatServer server = new TomcatServer("myapp", 8080, "src/test/");
-        server.start();
-
-        Executor executor = Executor.newInstance();
-
-        writeColl(8080, executor, "test", "1234");
-
-        Executor.closeIdleConnections();
-        server.stop();
     }
 
     @ParameterizedTest
@@ -202,34 +152,6 @@ public class RedissonSessionManagerTest {
         server2.stop();
     }
 
-
-    @ParameterizedTest
-    @MethodSource("data")
-    public void testInvalidateListener(String contextName) throws Exception {
-        prepare(contextName);
-        TomcatServer server1 = new TomcatServer("myapp", 8080, "src/test/");
-        server1.start();
-        TomcatServer server2 = new TomcatServer("myapp", 8081, "src/test/");
-        server2.start();
-
-        server1.getSessionManager().getRedisson().getKeys().flushall();
-
-        Executor executor = Executor.newInstance();
-        BasicCookieStore cookieStore = new BasicCookieStore();
-        executor.use(cookieStore);
-
-        write(8080, executor, "test", "1234");
-        read(8081, executor, "test", "1234");
-
-        TestHttpSessionListener.DESTROYED_INVOCATION_COUNTER = 0;
-        invalidate(8081, executor);
-
-        Executor.closeIdleConnections();
-        server1.stop();
-        server2.stop();
-
-        Assertions.assertEquals(2, TestHttpSessionListener.DESTROYED_INVOCATION_COUNTER);
-    }
 
     @ParameterizedTest
     @MethodSource("data")
@@ -354,13 +276,14 @@ public class RedissonSessionManagerTest {
     @MethodSource("data")
     public void testInvalidate(String contextName) throws Exception {
         prepare(contextName);
+        File f = Paths.get("").toAbsolutePath().resolve("src/test/webapp/WEB-INF/redisson.yaml").toFile();
+        Config config = Config.fromYAML(f);
+        RedissonClient r = Redisson.create(config);
+        r.getKeys().flushall();
 
         // start the server at http://localhost:8080/myapp
         TomcatServer server = new TomcatServer("myapp", 8080, "src/test/");
         server.start();
-
-        RedissonClient r = server.getSessionManager().getRedisson();
-        r.getKeys().flushall();
 
         Executor executor = Executor.newInstance();
         BasicCookieStore cookieStore = new BasicCookieStore();
@@ -368,7 +291,7 @@ public class RedissonSessionManagerTest {
         
         write(8080, executor, "test", "1234");
         Cookie cookie = cookieStore.getCookies().get(0);
-        invalidate(8080, executor);
+        invalidate(executor);
 
         Executor.closeIdleConnections();
         
@@ -377,21 +300,15 @@ public class RedissonSessionManagerTest {
         cookieStore.addCookie(cookie);
         executor.use(cookieStore);
         read(8080, executor, "test", "null");
-        invalidate(8080, executor);
+        invalidate(executor);
         
-        TimeUnit.SECONDS.sleep(61);
-        Assertions.assertEquals(0, r.getKeys().count());
-
         Executor.closeIdleConnections();
         server.stop();
-    }
 
-    private void writeColl(int port, Executor executor, String key, String value) throws IOException {
-        String url = "http://localhost:" + port + "/myapp/write-coll?key=" + key + "&value=" + value;
-        String response = executor.execute(Request.Get(url)).returnContent().asString();
-        Assertions.assertEquals("OK", response);
+        TimeUnit.SECONDS.sleep(61);
+        Assertions.assertEquals(0, r.getKeys().count());
     }
-
+    
     private void write(int port, Executor executor, String key, String value) throws IOException {
         String url = "http://localhost:" + port + "/myapp/write?key=" + key + "&value=" + value;
         String response = executor.execute(Request.Get(url)).returnContent().asString();
@@ -404,26 +321,14 @@ public class RedissonSessionManagerTest {
         Assertions.assertEquals(value, response);
     }
     
-    private void writeInternal(int port, Executor executor, Object value) throws IOException {
-        String url = "http://localhost:" + port + "/myapp/writeInternal?value=" + value;
-        String response = executor.execute(Request.Get(url)).returnContent().asString();
-        Assertions.assertEquals("OK", response);
-    }
-    
-    private void readInternal(int port, Executor executor, Object value) throws IOException {
-        String url = "http://localhost:" + port + "/myapp/readInternal";
-        String response = executor.execute(Request.Get(url)).returnContent().asString();
-        Assertions.assertEquals(value.toString(), response);
-    }
-    
     private void remove(Executor executor, String key, String value) throws IOException {
         String url = "http://localhost:8080/myapp/remove?key=" + key;
         String response = executor.execute(Request.Get(url)).returnContent().asString();
         Assertions.assertEquals(value, response);
     }
     
-    private void invalidate(int port, Executor executor) throws IOException {
-        String url = "http://localhost:" + port + "/myapp/invalidate";
+    private void invalidate(Executor executor) throws IOException {
+        String url = "http://localhost:8080/myapp/invalidate";
         String response = executor.execute(Request.Get(url)).returnContent().asString();
         Assertions.assertEquals("OK", response);
     }

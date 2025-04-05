@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,7 +47,7 @@ public class ObjectMapReplayDecoder<K, V> implements MultiDecoder<Map<K, V>> {
     }
 
     @Override
-    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state, long size) {
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
         Codec c = Optional.ofNullable(this.codec).orElse(codec);
         if (paramNum % 2 != 0) {
             return c.getMapValueDecoder();

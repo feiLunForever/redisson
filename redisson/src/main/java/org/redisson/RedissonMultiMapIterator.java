@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ import org.redisson.command.CommandAsyncExecutor;
 abstract class RedissonMultiMapIterator<K, V, M> implements Iterator<M> {
 
     private Iterator<Map.Entry<Object, Object>> keysIter;
-    protected String keysIterPos = "0";
+    protected long keysIterPos = 0;
 
     private K currentKey;
     private Iterator<V> valuesIter;
@@ -77,8 +77,8 @@ abstract class RedissonMultiMapIterator<K, V, M> implements Iterator<M> {
                 client = res.getRedisClient();
                 keysIter = res.getMap().entrySet().iterator();
                 keysIterPos = res.getPos();
-
-                if ("0".equals(res.getPos())) {
+                
+                if (res.getPos() == 0) {
                     keysFinished = true;
                 }
             }
@@ -93,7 +93,7 @@ abstract class RedissonMultiMapIterator<K, V, M> implements Iterator<M> {
                 }
             }
             
-            if ("0".equals(keysIterPos)) {
+            if (keysIterPos == 0) {
                 finished = true;
                 return false;
             }

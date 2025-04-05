@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 package org.redisson.api;
-
-import java.util.Objects;
 
 /**
  * 
@@ -42,16 +40,31 @@ public class GeoPosition {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        GeoPosition that = (GeoPosition) o;
-        return Double.compare(longitude, that.longitude) == 0 && Double.compare(latitude, that.latitude) == 0;
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        long temp;
+        temp = Double.doubleToLongBits(latitude);
+        result = prime * result + (int) (temp ^ (temp >>> 32));
+        temp = Double.doubleToLongBits(longitude);
+        result = prime * result + (int) (temp ^ (temp >>> 32));
+        return result;
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(longitude, latitude);
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        GeoPosition other = (GeoPosition) obj;
+        if (Double.doubleToLongBits(latitude) != Double.doubleToLongBits(other.latitude))
+            return false;
+        if (Double.doubleToLongBits(longitude) != Double.doubleToLongBits(other.longitude))
+            return false;
+        return true;
     }
 
     @Override

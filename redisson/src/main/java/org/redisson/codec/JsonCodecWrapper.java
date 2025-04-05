@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,8 +19,6 @@ import org.redisson.client.codec.BaseCodec;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.Encoder;
 
-import java.util.Objects;
-
 /**
  *
  * @author Nikita Koksharov
@@ -28,9 +26,9 @@ import java.util.Objects;
  */
 public class JsonCodecWrapper extends BaseCodec {
 
-    private JsonCodec innerCodec;
+    private JsonCodec<?> innerCodec;
 
-    public JsonCodecWrapper(JsonCodec innerCodec) {
+    public JsonCodecWrapper(JsonCodec<?> innerCodec) {
         this.innerCodec = innerCodec;
     }
 
@@ -40,24 +38,11 @@ public class JsonCodecWrapper extends BaseCodec {
 
     @Override
     public Decoder<Object> getValueDecoder() {
-        return innerCodec.getDecoder();
+        return innerCodec.getValueDecoder();
     }
 
     @Override
     public Encoder getValueEncoder() {
-        return innerCodec.getEncoder();
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        JsonCodecWrapper that = (JsonCodecWrapper) o;
-        return Objects.equals(innerCodec, that.innerCodec);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(innerCodec);
+        return innerCodec.getValueEncoder();
     }
 }

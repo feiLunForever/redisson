@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import java.util.List;
 import org.redisson.cache.LocalCachedMessageCodec;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.Encoder;
-import org.redisson.codec.ProtobufCodec;
 import org.redisson.jcache.JCacheEventCodec;
 
 /**
@@ -33,7 +32,7 @@ public abstract class BaseCodec implements Codec {
 
     public static final List<Class<?>> SKIPPED_CODECS = Arrays.asList(
             StringCodec.class, ByteArrayCodec.class, LocalCachedMessageCodec.class, BitSetCodec.class,
-            JCacheEventCodec.class, LongCodec.class, IntegerCodec.class, ProtobufCodec.class);
+            JCacheEventCodec.class, LongCodec.class, IntegerCodec.class);
     
     public static <T> T copy(ClassLoader classLoader, T codec) throws ReflectiveOperationException {
         if (codec == null) {

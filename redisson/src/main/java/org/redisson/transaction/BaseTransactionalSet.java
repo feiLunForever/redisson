@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -140,10 +140,10 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
     }
     
     protected abstract ScanResult<Object> scanIteratorSource(String name, RedisClient client,
-                                                             String startPos, String pattern, int count);
+                                                             long startPos, String pattern, int count);
     
     protected ScanResult<Object> scanIterator(String name, RedisClient client,
-                                              String startPos, String pattern, int count) {
+            long startPos, String pattern, int count) {
         ScanResult<Object> res = scanIteratorSource(name, client, startPos, pattern, count);
         Map<HashValue, Object> newstate = new HashMap<>(state);
         for (Iterator<Object> iterator = res.getValues().iterator(); iterator.hasNext();) {
@@ -154,7 +154,7 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
             }
         }
         
-        if ("0".equals(startPos)) {
+        if (startPos == 0) {
             for (Entry<HashValue, Object> entry : newstate.entrySet()) {
                 if (entry.getValue() == NULL) {
                     continue;
@@ -417,8 +417,8 @@ public abstract class BaseTransactionalSet<V> extends BaseTransactionalObject {
         try {
             return valueBuf.equals(oldValueBuf);
         } finally {
-            valueBuf.release();
-            oldValueBuf.release();
+            valueBuf.readableBytes();
+            oldValueBuf.readableBytes();
         }
     }
 

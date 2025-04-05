@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.redisson.api.RedissonClient;
 import org.redisson.api.annotation.RInject;
 import org.redisson.api.mapreduce.RCollator;
 import org.redisson.api.mapreduce.RReducer;
-import org.redisson.client.RedisException;
 import org.redisson.client.codec.Codec;
 
 import java.io.Serializable;
@@ -105,9 +104,7 @@ public class CoordinatorTask<KOut, VOut> implements Callable<Object>, Serializab
             if (timeout > 0) {
                 try {
                     mapperFuture.toCompletableFuture().get(timeout - timeSpent, TimeUnit.MILLISECONDS);
-                } catch (ExecutionException e) {
-                    throw ((Redisson) redisson).getCommandExecutor().convertException(e);
-                } catch (TimeoutException e) {
+                } catch (ExecutionException | CancellationException | TimeoutException e) {
                     mapperFuture.cancel(true);
                     throw new MapReduceTimeoutException();
                 }
@@ -115,9 +112,7 @@ public class CoordinatorTask<KOut, VOut> implements Callable<Object>, Serializab
             if (timeout == 0) {
                 try {
                     mapperFuture.toCompletableFuture().join();
-                } catch (CompletionException e) {
-                    throw new RedisException(e.getCause());
-                } catch (CancellationException e) {
+                } catch (CompletionException | CancellationException e) {
                     // skip
                 }
             }

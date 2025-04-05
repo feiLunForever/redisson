@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -44,7 +44,7 @@ import java.io.OutputStream;
  * @author Nikita Koksharov
  *
  */
-public class JacksonCodec<T> implements JsonCodec {
+public class JacksonCodec<T> implements JsonCodec<T> {
 
     private final Encoder encoder = new Encoder() {
         @Override
@@ -143,12 +143,12 @@ public class JacksonCodec<T> implements JsonCodec {
     }
 
     @Override
-    public Encoder getEncoder() {
+    public Encoder getValueEncoder() {
         return encoder;
     }
 
     @Override
-    public Decoder<Object> getDecoder() {
+    public Decoder<Object> getValueDecoder() {
         return decoder;
     }
 }

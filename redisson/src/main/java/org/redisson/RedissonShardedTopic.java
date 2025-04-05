@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,8 @@ import org.redisson.api.NameMapper;
 import org.redisson.api.RFuture;
 import org.redisson.api.RShardedTopic;
 import org.redisson.api.listener.MessageListener;
-import org.redisson.client.ChannelName;
 import org.redisson.client.RedisPubSubListener;
 import org.redisson.client.codec.Codec;
-import org.redisson.client.codec.LongCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.pubsub.PubSubType;
@@ -40,25 +38,21 @@ import java.util.concurrent.CompletableFuture;
  */
 public class RedissonShardedTopic extends RedissonTopic implements RShardedTopic {
 
-    public RedissonShardedTopic(CommandAsyncExecutor commandExecutor, String... names) {
-        super(commandExecutor, names);
+    public RedissonShardedTopic(CommandAsyncExecutor commandExecutor, String name) {
+        super(commandExecutor, name);
     }
 
-    public RedissonShardedTopic(Codec codec, CommandAsyncExecutor commandExecutor, String... names) {
-        super(codec, commandExecutor, names);
+    public RedissonShardedTopic(Codec codec, CommandAsyncExecutor commandExecutor, String name) {
+        super(codec, commandExecutor, name);
     }
 
-    public RedissonShardedTopic(Codec codec, CommandAsyncExecutor commandExecutor, NameMapper nameMapper, String... names) {
-        super(codec, commandExecutor, nameMapper, names);
-    }
-
-    public static RedissonTopic createRaw(Codec codec, CommandAsyncExecutor commandExecutor, String... names) {
-        return new RedissonShardedTopic(codec, commandExecutor, NameMapper.direct(), names);
+    public RedissonShardedTopic(Codec codec, CommandAsyncExecutor commandExecutor, NameMapper nameMapper, String name) {
+        super(codec, commandExecutor, nameMapper, name);
     }
 
     @Override
     protected RFuture<Integer> addListenerAsync(RedisPubSubListener<?> pubSubListener) {
-        CompletableFuture<PubSubConnectionEntry> future = subscribeService.ssubscribe(codec, channelNames, pubSubListener);
+        CompletableFuture<PubSubConnectionEntry> future = subscribeService.ssubscribe(codec, channelName, pubSubListener);
         CompletableFuture<Integer> f = future.thenApply(res -> {
             return System.identityHashCode(pubSubListener);
         });
@@ -67,30 +61,29 @@ public class RedissonShardedTopic extends RedissonTopic implements RShardedTopic
 
     @Override
     public RFuture<Long> publishAsync(Object message) {
-        String name = getName();
+        String name = getName(message);
         return commandExecutor.writeAsync(name, StringCodec.INSTANCE, RedisCommands.SPUBLISH, name, commandExecutor.encode(codec, message));
     }
 
     @Override
     public RFuture<Void> removeListenerAsync(MessageListener<?> listener) {
-        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.SUNSUBSCRIBE, channelNames, listener);
+        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.SUNSUBSCRIBE, channelName, listener);
         return new CompletableFutureWrapper<>(f);
     }
 
     @Override
     public RFuture<Void> removeListenerAsync(Integer... listenerIds) {
-        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.SUNSUBSCRIBE, channelNames, listenerIds);
+        CompletableFuture<Void> f = subscribeService.removeListenerAsync(PubSubType.SUNSUBSCRIBE, channelName, listenerIds);
         return new CompletableFutureWrapper<>(f);
     }
 
-    @Override
     public RFuture<Void> removeAllListenersAsync() {
-        CompletableFuture<Void> f = subscribeService.removeAllListenersAsync(PubSubType.SUNSUBSCRIBE, channelNames.toArray(new ChannelName[0]));
+        CompletableFuture<Void> f = subscribeService.removeAllListenersAsync(PubSubType.SUNSUBSCRIBE, channelName);
         return new CompletableFutureWrapper<>(f);
     }
 
     @Override
     public RFuture<Long> countSubscribersAsync() {
-        return commandExecutor.writeAsync(names.get(0), LongCodec.INSTANCE, RedisCommands.PUBSUB_SHARDNUMSUB, names.toArray());
+        throw new UnsupportedOperationException("Sharded PUBSUB doesn't support this operation");
     }
 }

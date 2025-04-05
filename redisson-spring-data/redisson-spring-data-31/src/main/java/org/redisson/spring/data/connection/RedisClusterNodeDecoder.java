@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,11 @@
 package org.redisson.spring.data.connection;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
@@ -52,14 +56,14 @@ public class RedisClusterNodeDecoder implements Decoder<List<RedisClusterNode>> 
             Set<Flag> flags = EnumSet.noneOf(Flag.class);
             for (String flag : flagsStr.split(",")) {
                 String flagValue = flag.replace("slave", "replica")
-                                        .toUpperCase(Locale.ENGLISH).replaceAll("\\?", "");
+                                        .toUpperCase().replaceAll("\\?", "");
                 flags.add(Flag.valueOf(flagValue));
             }
             
             RedisURI address = null;
             if (!flags.contains(Flag.NOADDR)) {
                 String addr = params[1].split("@")[0];
-                address = new RedisURI(RedisURI.REDIS_PROTOCOL + addr);
+                address = new RedisURI("redis://" + addr);
             }
 
             String masterId = params[3];
@@ -70,7 +74,7 @@ public class RedisClusterNodeDecoder implements Decoder<List<RedisClusterNode>> 
             Set<Integer> slotsCollection = new HashSet<Integer>();
             LinkState linkState = null;
             if (params.length >= 8 && params[7] != null) {
-                linkState = LinkState.valueOf(params[7].toUpperCase(Locale.ENGLISH));
+                linkState = LinkState.valueOf(params[7].toUpperCase());
             }
             if (params.length > 8) {
                 for (int i = 0; i < params.length - 8; i++) {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import org.redisson.client.protocol.RedisStrictCommand;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.misc.CompletableFutureWrapper;
 
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -40,7 +39,7 @@ import java.util.concurrent.TimeUnit;
  *
  * @author Danila Varatyntsev
  */
-public final class RedissonSpinLock extends RedissonBaseLock {
+public class RedissonSpinLock extends RedissonBaseLock {
 
     protected long internalLockLeaseTime;
 
@@ -48,7 +47,7 @@ public final class RedissonSpinLock extends RedissonBaseLock {
 
     final CommandAsyncExecutor commandExecutor;
 
-    RedissonSpinLock(CommandAsyncExecutor commandExecutor, String name,
+    public RedissonSpinLock(CommandAsyncExecutor commandExecutor, String name,
                             LockOptions.BackOff backOff) {
         super(commandExecutor, name);
         this.commandExecutor = commandExecutor;
@@ -128,7 +127,7 @@ public final class RedissonSpinLock extends RedissonBaseLock {
     <T> RFuture<T> tryLockInnerAsync(long leaseTime, TimeUnit unit, long threadId, RedisStrictCommand<T> command) {
         internalLockLeaseTime = unit.toMillis(leaseTime);
 
-        return commandExecutor.syncedEvalNoRetry(getRawName(), LongCodec.INSTANCE, command,
+        return commandExecutor.syncedEval(getRawName(), LongCodec.INSTANCE, command,
                 "if (redis.call('exists', KEYS[1]) == 0) then " +
                         "redis.call('hincrby', KEYS[1], ARGV[2], 1); " +
                         "redis.call('pexpire', KEYS[1], ARGV[1]); " +
@@ -179,16 +178,14 @@ public final class RedissonSpinLock extends RedissonBaseLock {
     }
 
     @Override
-    protected void cancelExpirationRenewal(Long threadId, Boolean unlockResult) {
-        super.cancelExpirationRenewal(threadId, unlockResult);
-        if (unlockResult == null || unlockResult) {
-            internalLockLeaseTime = getServiceManager().getCfg().getLockWatchdogTimeout();
-        }
+    protected void cancelExpirationRenewal(Long threadId) {
+        super.cancelExpirationRenewal(threadId);
+        this.internalLockLeaseTime = getServiceManager().getCfg().getLockWatchdogTimeout();
     }
 
     @Override
     public RFuture<Boolean> forceUnlockAsync() {
-        cancelExpirationRenewal(null, null);
+        cancelExpirationRenewal(null);
         return commandExecutor.syncedEvalWithRetry(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
                 "if (redis.call('del', KEYS[1]) == 1) then "
                         + "return 1 "
@@ -199,28 +196,21 @@ public final class RedissonSpinLock extends RedissonBaseLock {
     }
 
 
-    protected RFuture<Boolean> unlockInnerAsync(long threadId, String requestId, int timeout) {
-        return evalWriteSyncedNoRetryAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
-                "local val = redis.call('get', KEYS[2]); " +
-                      "if val ~= false then " +
-                        "return tonumber(val);" +
-                      "end; " +
-
-                      "if (redis.call('hexists', KEYS[1], ARGV[2]) == 0) then " +
+    protected RFuture<Boolean> unlockInnerAsync(long threadId) {
+        return evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
+                "if (redis.call('hexists', KEYS[1], ARGV[2]) == 0) then " +
                         "return nil;" +
-                      "end; " +
-                      "local counter = redis.call('hincrby', KEYS[1], ARGV[2], -1); " +
-                      "if (counter > 0) then " +
+                        "end; " +
+                        "local counter = redis.call('hincrby', KEYS[1], ARGV[2], -1); " +
+                        "if (counter > 0) then " +
                         "redis.call('pexpire', KEYS[1], ARGV[1]); " +
-                        "redis.call('set', KEYS[2], 0, 'px', ARGV[3]); " +
                         "return 0; " +
-                      "else " +
+                        "else " +
                         "redis.call('del', KEYS[1]); " +
-                        "redis.call('set', KEYS[2], 1, 'px', ARGV[3]); " +
                         "return 1; " +
-                      "end; ",
-                Arrays.asList(getRawName(), getUnlockLatchName(requestId)),
-                internalLockLeaseTime, getLockName(threadId), timeout);
+                        "end; " +
+                        "return nil;",
+                Collections.singletonList(getRawName()), internalLockLeaseTime, getLockName(threadId));
     }
 
     @Override

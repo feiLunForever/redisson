@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,10 @@
  */
 package org.redisson.eviction;
 
-import org.redisson.api.MapCacheOptions;
-import org.redisson.command.CommandAsyncExecutor;
-
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
+import java.util.concurrent.ConcurrentMap;
+
+import org.redisson.command.CommandAsyncExecutor;
 
 /**
  * Eviction scheduler.
@@ -31,58 +29,60 @@ import java.util.function.Supplier;
  * @author Nikita Koksharov
  *
  */
-public final class EvictionScheduler {
+public class EvictionScheduler {
 
-    private final Map<String, EvictionTask> tasks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, EvictionTask> tasks = new ConcurrentHashMap<>();
     private final CommandAsyncExecutor executor;
 
     public EvictionScheduler(CommandAsyncExecutor executor) {
         this.executor = executor;
     }
 
-    private void addTask(String name, Supplier<EvictionTask> supplier) {
-        tasks.computeIfAbsent(name, k -> {
-            EvictionTask task = supplier.get();
-            task.schedule();
-            return task;
-        });
-    }
-
     public void scheduleCleanMultimap(String name, String timeoutSetName) {
-        addTask(name, () -> new MultimapEvictionTask(name, timeoutSetName, executor));
+        EvictionTask task = new MultimapEvictionTask(name, timeoutSetName, executor);
+        EvictionTask prevTask = tasks.putIfAbsent(name, task);
+        if (prevTask == null) {
+            task.schedule();
+        }
     }
-
+    
     public void scheduleJCache(String name, String timeoutSetName, String expiredChannelName) {
-        addTask(name, () -> new JCacheEvictionTask(name, timeoutSetName, expiredChannelName, executor));
+        EvictionTask task = new JCacheEvictionTask(name, timeoutSetName, expiredChannelName, executor);
+        EvictionTask prevTask = tasks.putIfAbsent(name, task);
+        if (prevTask == null) {
+            task.schedule();
+        }
     }
 
     public void scheduleTimeSeries(String name, String timeoutSetName) {
-        addTask(name, () -> new TimeSeriesEvictionTask(name, timeoutSetName, executor));
+        EvictionTask task = new TimeSeriesEvictionTask(name, timeoutSetName, executor);
+        EvictionTask prevTask = tasks.putIfAbsent(name, task);
+        if (prevTask == null) {
+            task.schedule();
+        }
     }
 
     public void schedule(String name, long shiftInMilliseconds) {
-        addTask(name, () -> new ScoredSetEvictionTask(name, executor, shiftInMilliseconds));
+        EvictionTask task = new ScoredSetEvictionTask(name, executor, shiftInMilliseconds);
+        EvictionTask prevTask = tasks.putIfAbsent(name, task);
+        if (prevTask == null) {
+            task.schedule();
+        }
     }
 
-    public void schedule(String name, String timeoutSetName, String maxIdleSetName,
-                         String expiredChannelName, String lastAccessTimeSetName, MapCacheOptions<?, ?> options,
-                         String publishCommand) {
-        boolean removeEmpty;
-        if (options != null) {
-            removeEmpty = options.isRemoveEmptyEvictionTask();
-        } else {
-            removeEmpty = false;
+    public void schedule(String name, String timeoutSetName, String maxIdleSetName, String expiredChannelName, String lastAccessTimeSetName) {
+        EvictionTask task = new MapCacheEvictionTask(name, timeoutSetName, maxIdleSetName, expiredChannelName, lastAccessTimeSetName, executor);
+        EvictionTask prevTask = tasks.putIfAbsent(name, task);
+        if (prevTask == null) {
+            task.schedule();
         }
-
-        addTask(name, () -> new MapCacheEvictionTask(name, timeoutSetName, maxIdleSetName, expiredChannelName, lastAccessTimeSetName,
-                executor, removeEmpty, this, publishCommand));
     }
 
     public void remove(String name) {
-        tasks.computeIfPresent(name, (k, task) -> {
-            task.cancel();
-            return null;
-        });
+        EvictionTask task = tasks.remove(name);
+        if (task != null && task.getScheduledFuture() != null) {
+            task.getScheduledFuture().cancel(false);
+        }
     }
-
+    
 }

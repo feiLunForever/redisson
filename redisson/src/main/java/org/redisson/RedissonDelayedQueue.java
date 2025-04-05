@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,15 +35,16 @@ import java.util.concurrent.TimeUnit;
  */
 public class RedissonDelayedQueue<V> extends RedissonExpirable implements RDelayedQueue<V> {
 
+    private final QueueTransferService queueTransferService;
     private final String channelName;
     private final String queueName;
     private final String timeoutSetName;
     
-    protected RedissonDelayedQueue(Codec codec, CommandAsyncExecutor commandExecutor, String name) {
+    protected RedissonDelayedQueue(QueueTransferService queueTransferService, Codec codec, final CommandAsyncExecutor commandExecutor, String name) {
         super(codec, commandExecutor, name);
         channelName = prefixName("redisson_delay_queue_channel", getRawName());
         queueName = prefixName("redisson_delay_queue", getRawName());
-        timeoutSetName = getTimeoutSetName(getRawName());
+        timeoutSetName = prefixName("redisson_delay_queue_timeout", getRawName());
         
         QueueTransferTask task = new QueueTransferTask(commandExecutor.getServiceManager()) {
             
@@ -74,12 +75,10 @@ public class RedissonDelayedQueue<V> extends RedissonExpirable implements RDelay
                 return RedissonTopic.createRaw(LongCodec.INSTANCE, commandExecutor, channelName);
             }
         };
-
-        commandExecutor.getServiceManager().getQueueTransferService().schedule(queueName, task);
-    }
-
-    private String getTimeoutSetName(String rawName) {
-        return prefixName("redisson_delay_queue_timeout", rawName);
+        
+        queueTransferService.schedule(queueName, task);
+        
+        this.queueTransferService = queueTransferService;
     }
 
     @Override
@@ -324,7 +323,7 @@ public class RedissonDelayedQueue<V> extends RedissonExpirable implements RDelay
                     + "local v = redis.call('lindex', KEYS[1], i);"
                     + "local randomId, value = struct.unpack('Bc0Lc0', v);"
                     
-                    + "for j = #ARGV, 1, -1 do "
+                    + "for j = 1, #ARGV, 1 do "
                         + "if value == ARGV[j] then "
                           + "table.remove(ARGV, j) "
                         + "end; "
@@ -430,14 +429,6 @@ public class RedissonDelayedQueue<V> extends RedissonExpirable implements RDelay
     }
 
     @Override
-    public RFuture<Boolean> copyAsync(List<Object> keys, int database, boolean replace) {
-        String newName = (String) keys.get(1);
-        List<Object> kks = Arrays.asList(queueName, timeoutSetName,
-                newName, getTimeoutSetName(newName));
-        return super.copyAsync(kks, database, replace);
-    }
-
-    @Override
     public RFuture<Boolean> expireAsync(long timeToLive, TimeUnit timeUnit, String param, String... keys) {
         return super.expireAsync(timeToLive, timeUnit, param, queueName, timeoutSetName);
     }
@@ -533,8 +524,7 @@ public class RedissonDelayedQueue<V> extends RedissonExpirable implements RDelay
 
     @Override
     public void destroy() {
-        commandExecutor.getServiceManager().getQueueTransferService().remove(queueName);
-        removeListeners();
+        queueTransferService.remove(queueName);
     }
     
 }

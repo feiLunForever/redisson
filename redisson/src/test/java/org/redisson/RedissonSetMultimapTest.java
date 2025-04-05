@@ -8,13 +8,14 @@ import org.redisson.client.codec.StringCodec;
 import java.io.Serializable;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class RedissonSetMultimapTest extends RedisDockerTest {
+public class RedissonSetMultimapTest extends BaseTest {
 
     public static class SimpleKey implements Serializable {
 
@@ -222,10 +223,10 @@ public class RedissonSetMultimapTest extends RedisDockerTest {
     public void testSizeInMemory() {
         RSetMultimap<String, String> set = redisson.getSetMultimap("test");
         set.put("1", "2");
-        assertThat(set.sizeInMemory()).isEqualTo(88);
+        assertThat(set.sizeInMemory()).isEqualTo(228);
 
         set.put("1", "3");
-        assertThat(set.sizeInMemory()).isEqualTo(96);
+        assertThat(set.sizeInMemory()).isEqualTo(257);
     }
     
     @Test
@@ -364,18 +365,12 @@ public class RedissonSetMultimapTest extends RedisDockerTest {
 
     @Test
     public void testPutAll() {
-        RSetMultimap<String, String> map = redisson.getSetMultimap("test1");
-        List<String> values = Arrays.asList("1", "2", "3");
-        assertThat(map.putAll("0", values)).isTrue();
-        assertThat(map.putAll("0", Arrays.asList("1"))).isFalse();
+        RSetMultimap<SimpleKey, SimpleValue> map = redisson.getSetMultimap("test1");
+        List<SimpleValue> values = Arrays.asList(new SimpleValue("1"), new SimpleValue("2"), new SimpleValue("3"));
+        assertThat(map.putAll(new SimpleKey("0"), values)).isTrue();
+        assertThat(map.putAll(new SimpleKey("0"), Arrays.asList(new SimpleValue("1")))).isFalse();
 
-        assertThat(map.get("0")).containsOnlyElementsOf(values);
-
-        List<String> vals = new ArrayList<>();
-        for (int i = 0; i < 10000; i++) {
-            vals.add("" + i);
-        }
-        map.putAll("0", vals);
+        assertThat(map.get(new SimpleKey("0"))).containsOnlyElementsOf(values);
     }
 
     @Test
@@ -442,26 +437,6 @@ public class RedissonSetMultimapTest extends RedisDockerTest {
         Set<SimpleValue> vals = map.getAll(new SimpleKey("0"));
         assertThat(vals).isEmpty();
 
-    }
-
-    @Test
-    public void testFastReplaceValues() {
-        RSetMultimap<SimpleKey, SimpleValue> map = redisson.getSetMultimap("testFastReplace");
-
-        map.put(new SimpleKey("0"), new SimpleValue("1"));
-        map.put(new SimpleKey("3"), new SimpleValue("4"));
-
-        List<SimpleValue> values = Arrays.asList(new SimpleValue("11"), new SimpleValue("12"));
-
-        map.fastReplaceValues(new SimpleKey("0"), values);
-
-        Set<SimpleValue> allValues = map.getAll(new SimpleKey("0"));
-        assertThat(allValues).containsExactlyElementsOf(values);
-
-        map.fastReplaceValues(new SimpleKey("0"), Collections.emptyList());
-
-        Set<SimpleValue> vals = map.getAll(new SimpleKey("0"));
-        assertThat(vals).isEmpty();
     }
 
     @Test

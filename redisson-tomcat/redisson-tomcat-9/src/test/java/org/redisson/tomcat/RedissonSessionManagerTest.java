@@ -1,15 +1,12 @@
 package org.redisson.tomcat;
 
-import org.apache.catalina.Manager;
 import org.apache.http.client.fluent.Executor;
 import org.apache.http.client.fluent.Request;
 import org.apache.http.cookie.Cookie;
 import org.apache.http.impl.client.BasicCookieStore;
-import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
@@ -20,9 +17,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
-
-import static org.redisson.tomcat.RedissonSessionManager.ReadMode.MEMORY;
-import static org.redisson.tomcat.RedissonSessionManager.UpdateMode.AFTER_REQUEST;
 
 public class RedissonSessionManagerTest {
 
@@ -39,75 +33,6 @@ public class RedissonSessionManagerTest {
         String basePath = "src/test/webapp/META-INF/";
         Files.deleteIfExists(Paths.get(basePath + "context.xml"));
         Files.copy(Paths.get(basePath + contextName), Paths.get(basePath + "context.xml"));
-    }
-
-    private Manager prepareManager() {
-        Config config = new Config();
-        config.useSingleServer().setAddress("redis://127.0.0.1:6379");
-
-        RedissonSessionManager redissonSessionManager = new RedissonSessionManager();
-        redissonSessionManager.setReadMode(MEMORY.name());
-        redissonSessionManager.setUpdateMode(AFTER_REQUEST.name());
-        redissonSessionManager.setBroadcastSessionEvents(true);
-        redissonSessionManager.setBroadcastSessionUpdates(true);
-        redissonSessionManager.setConfig(config);
-
-        return redissonSessionManager;
-    }
-    
-    @ParameterizedTest
-    @ValueSource(strings = {"context_memory.xml", "context_memory_after_request.xml"})
-    public void testUpdateMaxInactiveInterval(String contextName) throws Exception {
-        prepare(contextName);
-        TomcatServer server1 = new TomcatServer("myapp", 8080, "src/test/");
-        TomcatServer server2 = new TomcatServer("myapp", 8081, "src/test/");
-        try {
-            server1.start();
-            server2.start();
-            
-            Executor executor = Executor.newInstance();
-            BasicCookieStore cookieStore = new BasicCookieStore();
-            executor.use(cookieStore);
-            
-            write(8080, executor, "test", "from_server1");
-            write(8081, executor, "test", "from_server2");
-            
-            writeInternal(8080, executor, 3000);
-            readInternal(8081, executor, 3000);
-            
-        } finally {
-            Executor.closeIdleConnections();
-            server1.stop();
-            server2.stop();
-        }
-    }
-    
-    @Test
-    public void testProgrammaticManagerConfigurationUpdateTwoServers_readValue() throws Exception {
-        prepare("context_empty.xml");
-        TomcatServer server1 = new TomcatServer("myapp", 8080, "src/test/");
-        server1.setManager(prepareManager());
-        TomcatServer server2 = new TomcatServer("myapp", 8081, "src/test/");
-        server2.setManager(prepareManager());
-        try {
-            server1.start();
-            server2.start();
-
-            Executor executor = Executor.newInstance();
-            BasicCookieStore cookieStore = new BasicCookieStore();
-            executor.use(cookieStore);
-
-            write(8080, executor, "test", "from_server1");
-            write(8081, executor, "test", "from_server2");
-
-            read(8080, executor, "test", "from_server2");
-            read(8081, executor, "test", "from_server2");
-
-        } finally {
-            Executor.closeIdleConnections();
-            server1.stop();
-            server2.stop();
-        }
     }
 
     @ParameterizedTest
@@ -128,7 +53,7 @@ public class RedissonSessionManagerTest {
             write(8081, executor, "test", "from_server2");
 
             read(8080, executor, "test", "from_server2");
-            read(8081, executor, "test", "from_server2");
+            read(8080, executor, "test", "from_server2");
 
         } finally {
             Executor.closeIdleConnections();
@@ -394,18 +319,6 @@ public class RedissonSessionManagerTest {
         String url = "http://localhost:" + port + "/myapp/read?key=" + key;
         String response = executor.execute(Request.Get(url)).returnContent().asString();
         Assertions.assertEquals(value, response);
-    }
-    
-    private void writeInternal(int port, Executor executor, Object value) throws IOException {
-        String url = "http://localhost:" + port + "/myapp/writeInternal?value=" + value;
-        String response = executor.execute(Request.Get(url)).returnContent().asString();
-        Assertions.assertEquals("OK", response);
-    }
-    
-    private void readInternal(int port, Executor executor, Object value) throws IOException {
-        String url = "http://localhost:" + port + "/myapp/readInternal";
-        String response = executor.execute(Request.Get(url)).returnContent().asString();
-        Assertions.assertEquals(value.toString(), response);
     }
     
     private void remove(Executor executor, String key, String value) throws IOException {

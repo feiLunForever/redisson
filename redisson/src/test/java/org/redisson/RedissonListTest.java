@@ -10,7 +10,6 @@ import org.redisson.client.RedisException;
 import org.redisson.client.codec.IntegerCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.config.Config;
-import org.testcontainers.containers.GenericContainer;
 
 import java.io.IOException;
 import java.util.*;
@@ -22,27 +21,37 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-public class RedissonListTest extends RedisDockerTest {
+public class RedissonListTest extends BaseTest {
 
     @Test
-    public void testAddListener() {
-        testWithParams(redisson -> {
-            RList<Integer> al = redisson.getList("name");
-            CountDownLatch latch = new CountDownLatch(1);
-            al.addListener(new ListAddListener() {
-                @Override
-                public void onListAdd(String name) {
-                    latch.countDown();
-                }
-            });
-            al.add(1);
+    public void testAddListener() throws RedisRunner.FailedToStartRedisException, IOException, InterruptedException {
+        RedisRunner.RedisProcess instance = new RedisRunner()
+                .nosave()
+                .randomPort()
+                .randomDir()
+                .notifyKeyspaceEvents(
+                                    RedisRunner.KEYSPACE_EVENTS_OPTIONS.E,
+                                    RedisRunner.KEYSPACE_EVENTS_OPTIONS.l)
+                .run();
 
-            try {
-                assertThat(latch.await(1, TimeUnit.SECONDS)).isTrue();
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
+        Config config = new Config();
+        config.useSingleServer().setAddress(instance.getRedisServerAddressAndPort());
+        RedissonClient redisson = Redisson.create(config);
+
+        RList<Integer> al = redisson.getList("name");
+        CountDownLatch latch = new CountDownLatch(1);
+        al.addListener(new ListAddListener() {
+            @Override
+            public void onListAdd(String name) {
+                latch.countDown();
             }
-        }, NOTIFY_KEYSPACE_EVENTS, "El");
+        });
+        al.add(1);
+
+        assertThat(latch.await(1, TimeUnit.SECONDS)).isTrue();
+
+        redisson.shutdown();
+        instance.stop();
     }
 
     @Test
@@ -758,26 +767,6 @@ public class RedissonListTest extends RedisDockerTest {
     }
 
     @Test
-    public void testSubListContainsAll() {
-        List<Integer> list = redisson.getList("list");
-        list.add(1);
-        list.add(2);
-        list.add(3);
-        list.add(4);
-        list.add(5);
-        list.add(6);
-        list.add(7);
-        list.add(8);
-        list.add(9);
-        list.add(10);
-
-        List<Integer> subList = list.subList(3, 7);
-        assertThat(subList.containsAll(List.of(4, 5))).isTrue();
-        assertThat(subList.containsAll(List.of(4, 4))).isTrue();
-        assertThat(subList.containsAll(List.of(4, 5, 4))).isTrue();
-    }
-
-    @Test
     public void testSubListMiddle() {
         List<Integer> list = redisson.getList("list");
         list.add(1);
@@ -959,42 +948,7 @@ public class RedissonListTest extends RedisDockerTest {
         assertThat(val1).isEqualTo(6);
         assertThat(subList.iterator()).toIterable().containsExactly(3, 4);
     }
-    
-    @Test
-    public void testSubListRemoveAll() {
-        List<Integer> list = redisson.getList("list");
-        list.add(1);
-        list.add(2);
-        list.add(3);
-        list.add(4);
-        list.add(5);
-        list.add(6);
-        list.add(7);
-        list.add(8);
-        
-        List<Integer> subList = list.subList(2, 6);
-        assertThat(subList.iterator()).toIterable().containsExactly(3, 4, 5, 6);
-        assertThat(subList.removeAll(List.of(3, 5))).isTrue();
-        assertThat(subList.iterator()).toIterable().containsExactly(4, 6, 7, 8);
-    }
-    
-    @Test
-    public void testSubListLastIndexOf() {
-        List<Integer> list = redisson.getList("list");
-        list.add(1);
-        list.add(2);
-        list.add(3);
-        list.add(4);
-        list.add(5);
-        list.add(5);
-        list.add(6);
-        list.add(7);
-        
-        List<Integer> subList = list.subList(2, 6);
-        assertThat(subList.lastIndexOf(3)).isEqualTo(2);
-        assertThat(subList.lastIndexOf(4)).isEqualTo(3);
-        assertThat(subList.lastIndexOf(5)).isEqualTo(5);
-    }
+
 
     @Test
     public void testSet() {
@@ -1215,9 +1169,6 @@ public class RedissonListTest extends RedisDockerTest {
         Assertions.assertTrue(list.containsAll(Arrays.asList(30, 11)));
         Assertions.assertFalse(list.containsAll(Arrays.asList(30, 711, 11)));
         Assertions.assertTrue(list.containsAll(Arrays.asList(30)));
-
-        Assertions.assertTrue(list.containsAll(Arrays.asList(30, 30)));
-        Assertions.assertTrue(list.containsAll(Arrays.asList(30, 11, 30)));
     }
 
     @Test

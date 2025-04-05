@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,11 +134,6 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
     }
 
     @Override
-    public RFuture<Boolean> copyAsync(List<Object> keys, int database, boolean replace) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public RFuture<Integer> sizeAsync() {
         return commandExecutor.evalReadAsync(getRawName(), codec, RedisCommands.EVAL_INTEGER,
                       "local expireDate = 92233720368547758; " +
@@ -180,7 +175,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
          System.currentTimeMillis(), encodeMapKey(key), encodeMapValue(o));
     }
 
-    private ListScanResult<Object> scanIterator(RedisClient client, String startPos, String pattern, int count) {
+    private ListScanResult<Object> scanIterator(RedisClient client, long startPos, String pattern, int count) {
         List<Object> params = new ArrayList<Object>();
         params.add(System.currentTimeMillis());
         params.add(startPos);
@@ -240,7 +235,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
         return new RedissonBaseIterator<V>() {
 
             @Override
-            protected ScanResult<Object> iterator(RedisClient client, String nextIterPos) {
+            protected ScanResult<Object> iterator(RedisClient client, long nextIterPos) {
                 return distributedScanIterator(iteratorName, pattern, count);
             }
 
@@ -305,7 +300,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
         return new RedissonBaseIterator<V>() {
 
             @Override
-            protected ListScanResult<Object> iterator(RedisClient client, String nextIterPos) {
+            protected ListScanResult<Object> iterator(RedisClient client, long nextIterPos) {
                 return scanIterator(client, nextIterPos, pattern, count);
             }
 
@@ -392,7 +387,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
 
     @Override
     public RFuture<V> randomAsync() {
-        return commandExecutor.readAsync(getRawName(), codec, RedisCommands.SRANDMEMBER_SINGLE, getRawName());
+        return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.SRANDMEMBER_SINGLE, getRawName());
     }
 
     @Override
@@ -402,7 +397,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
 
     @Override
     public RFuture<Set<V>> randomAsync(int count) {
-        return commandExecutor.readAsync(getRawName(), codec, RedisCommands.SRANDMEMBER, getRawName(), count);
+        return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.SRANDMEMBER, getRawName(), count);
     }
     
     @Override
@@ -459,7 +454,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
               + "end; " +
                 "local s = redis.call('smembers', KEYS[2]);" +
                         "for i = 1, #s, 1 do " +
-                            "for j = #ARGV, 3, -1 do "
+                            "for j = 2, #ARGV, 1 do "
                             + "if ARGV[j] == s[i] "
                             + "then table.remove(ARGV, j) end "
                         + "end; "
@@ -541,7 +536,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
                        + "while i <= #s do "
                             + "local element = s[i] "
                             + "local isInAgrs = false "
-                            + "for j = 3, #ARGV, 1 do "
+                            + "for j = 2, #ARGV, 1 do "
                                 + "if ARGV[j] == element then "
                                     + "isInAgrs = true "
                                     + "break "
@@ -575,7 +570,7 @@ public class RedissonSetMultimapValues<V> extends RedissonExpirable implements R
                       + "end; " +
                 
                         "local v = 0 " +
-                        "for i = 3, #ARGV, 1 do "
+                        "for i = 2, #ARGV, 1 do "
                             + "if redis.call('srem', KEYS[2], ARGV[i]) == 1 "
                             + "then v = 1 end "
                         +"end "

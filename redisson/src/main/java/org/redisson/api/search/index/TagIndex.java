@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -71,20 +71,6 @@ public interface TagIndex extends FieldIndex {
      * @return options object
      */
     TagIndex withSuffixTrie();
-
-    /**
-     * Defines whether to index an empty value.
-     *
-     * @return options object
-     */
-    TagIndex indexEmpty();
-
-    /**
-     * Defines to index documents that don't contain this attribute
-     *
-     * @return options object
-     */
-    TagIndex indexMissing();
 
 }
 

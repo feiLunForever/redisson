@@ -1,11 +1,9 @@
 package org.redisson;
 
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RTransferQueue;
 
-import java.time.Duration;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
@@ -17,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * @author Nikita Koksharov
  */
-public class RedissonTransferQueueTest extends RedisDockerTest {
+public class RedissonTransferQueueTest extends BaseTest {
 
     @Test
     public void testTryTransferWithDelay() throws InterruptedException, ExecutionException {
@@ -95,11 +93,12 @@ public class RedissonTransferQueueTest extends RedisDockerTest {
             assertThat(res2).isFalse();
         }, 4, TimeUnit.SECONDS);
 
-        Awaitility.await().atLeast(Duration.ofMillis(3900)).untilAsserted(() -> {
-            int l = queue1.take();
-            takeExecuted.set(true);
-            assertThat(l).isEqualTo(3);
-        });
+        long s = System.currentTimeMillis();
+        int l = queue1.take();
+        takeExecuted.set(true);
+
+        Assertions.assertEquals(3, l);
+        Assertions.assertTrue(System.currentTimeMillis() - s > 3900);
         f.get();
         assertThat(queue1.size()).isZero();
         assertThat(queue1.peek()).isNull();
@@ -208,10 +207,7 @@ public class RedissonTransferQueueTest extends RedisDockerTest {
 
         f.get();
         queue.clear();
-
-        Awaitility.waitAtMost(Duration.ofSeconds(1)).untilAsserted(() -> {
-            assertThat(redisson.getKeys().count()).isZero();
-        });
+        assertThat(redisson.getKeys().count()).isZero();
     }
 
     @Test

@@ -10,7 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Nikita Koksharov
  *
  */
-public class RedissonIdGeneratorTest extends RedisDockerTest {
+public class RedissonIdGeneratorTest extends BaseTest {
 
     @Test
     public void testEmpty() {
@@ -29,18 +29,6 @@ public class RedissonIdGeneratorTest extends RedisDockerTest {
         for (int i = 12; i <= 5000; i++) {
             assertThat(generator.nextId()).isEqualTo(i);
         }
-    }
-    
-    @Test
-    public void testCopy() {
-        testTwoDatabase((r1, r2) -> {
-            RIdGenerator generator = r1.getIdGenerator("test");
-            generator.tryInit(12, 2931);
-            
-            generator.copy("test1", 1);
-            assertThat(r1.getKeys().count()).isEqualTo(2);
-            assertThat(r2.getKeys().count()).isEqualTo(2);
-        });
     }
 
 }

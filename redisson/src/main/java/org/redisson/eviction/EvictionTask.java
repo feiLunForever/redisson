@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,15 +15,14 @@
  */
 package org.redisson.eviction;
 
-import io.netty.util.Timeout;
-import io.netty.util.TimerTask;
+import io.netty.util.concurrent.ScheduledFuture;
+import org.redisson.api.RFuture;
 import org.redisson.command.CommandAsyncExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Deque;
 import java.util.LinkedList;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -31,11 +30,11 @@ import java.util.concurrent.TimeUnit;
  * @author Nikita Koksharov
  *
  */
-abstract class EvictionTask implements TimerTask {
+abstract class EvictionTask implements Runnable {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     
-    final Deque<Integer> sizeHistory = new LinkedList<>();
+    final Deque<Integer> sizeHistory = new LinkedList<Integer>();
     final int minDelay;
     final int maxDelay;
     final int keysLimit;
@@ -44,36 +43,35 @@ abstract class EvictionTask implements TimerTask {
 
     final CommandAsyncExecutor executor;
 
-    volatile Timeout timeout;
-
+    ScheduledFuture<?> scheduledFuture;
+    
     EvictionTask(CommandAsyncExecutor executor) {
         super();
         this.executor = executor;
         this.minDelay = executor.getServiceManager().getCfg().getMinCleanUpDelay();
         this.maxDelay = executor.getServiceManager().getCfg().getMaxCleanUpDelay();
         this.keysLimit = executor.getServiceManager().getCfg().getCleanUpKeysAmount();
-        this.delay = minDelay;
     }
 
     public void schedule() {
-        timeout = executor.getServiceManager().newTimeout(this, delay, TimeUnit.SECONDS);
+        scheduledFuture = executor.getServiceManager().getGroup().schedule(this, delay, TimeUnit.SECONDS);
     }
 
-    public void cancel() {
-        timeout.cancel();
+    public ScheduledFuture<?> getScheduledFuture() {
+        return scheduledFuture;
     }
 
-    abstract CompletionStage<Integer> execute();
+    abstract RFuture<Integer> execute();
     
     abstract String getName();
     
     @Override
-    public void run(Timeout timeout) {
+    public void run() {
         if (executor.getServiceManager().isShuttingDown()) {
             return;
         }
-
-        CompletionStage<Integer> future = execute();
+        
+        RFuture<Integer> future = execute();
         future.whenComplete((size, e) -> {
             if (e != null) {
                 log.error("Unable to evict elements for '{}'", getName(), e);

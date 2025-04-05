@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @author Nikita Koksharov
  *
  */
-public class RedissonReliableTopicTest extends RedisDockerTest {
+public class RedissonReliableTopicTest extends BaseTest {
 
     @Test
     public void testConcurrency() throws InterruptedException {
@@ -52,8 +52,6 @@ public class RedissonReliableTopicTest extends RedisDockerTest {
 
         ee.shutdown();
         assertThat(ee.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-
-        Thread.sleep(100);
         assertThat(sent.get()).isEqualTo(500);
         assertThat(ii.get()).isEqualTo(500);
         rt.removeAllListeners();
@@ -67,8 +65,10 @@ public class RedissonReliableTopicTest extends RedisDockerTest {
             counter.incrementAndGet();
         });
 
-        Config config =  createConfig();
+        Config config = new Config();
         config.setReliableTopicWatchdogTimeout(1000);
+        config.useSingleServer()
+                .setAddress(RedisRunner.getDefaultRedisServerBindAddressAndPort());
         RedissonClient secondInstance = Redisson.create(config);
         RReliableTopic rt2 = secondInstance.getReliableTopic("test1");
         rt2.addListener(Integer.class, (ch, m) -> {
@@ -89,7 +89,7 @@ public class RedissonReliableTopicTest extends RedisDockerTest {
 
         assertThat(rt.countSubscribers()).isEqualTo(1);
         assertThat(counter.get()).isEqualTo(10);
-        Thread.sleep(2000);
+        Thread.sleep(1000);
         assertThat(rt.size()).isEqualTo(0);
     }
 
@@ -110,6 +110,8 @@ public class RedissonReliableTopicTest extends RedisDockerTest {
         }
 
         Awaitility.waitAtMost(Duration.ofSeconds(2)).until(() -> counter.get() == 20);
+        Thread.sleep(1000);
+        assertThat(rt.size()).isEqualTo(0);
     }
 
     @Test
@@ -123,11 +125,8 @@ public class RedissonReliableTopicTest extends RedisDockerTest {
             messages.add(m);
         });
 
-        Thread.sleep(50);
         assertThat(messages).containsOnly("1");
-
         rt.publish("2");
-
         Thread.sleep(50);
         assertThat(messages).containsOnly("1", "2");
 
@@ -163,7 +162,7 @@ public class RedissonReliableTopicTest extends RedisDockerTest {
         });
 
         assertThat(rt.publish("3")).isEqualTo(1);
-        Thread.sleep(50);
+        Thread.sleep(5);
         assertThat(i).hasValue(3);
     }
 

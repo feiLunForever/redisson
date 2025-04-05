@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -66,8 +66,8 @@ public class RedissonBinaryStream extends RedissonBucket<byte[]> implements RBin
     
     class RedissonInputStream extends InputStream {
 
-        private volatile long index;
-        private volatile long mark;
+        private long index;
+        private long mark;
         
         @Override
         public long skip(long n) throws IOException {
@@ -84,12 +84,12 @@ public class RedissonBinaryStream extends RedissonBucket<byte[]> implements RBin
         }
         
         @Override
-        public void mark(int readlimit) {
+        public synchronized void mark(int readlimit) {
             mark = index;
         }
         
         @Override
-        public void reset() {
+        public synchronized void reset() throws IOException {
             index = mark;
         }
         
@@ -179,13 +179,6 @@ public class RedissonBinaryStream extends RedissonBucket<byte[]> implements RBin
 
         @Override
         public SeekableByteChannel truncate(long size) throws IOException {
-            if (size < 0) {
-                throw new IllegalArgumentException("Negative size");
-            }
-            if (size == 0) {
-                delete();
-                return this;
-            }
             get(commandExecutor.evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_VOID,
                 "local len = redis.call('strlen', KEYS[1]); " +
                         "if tonumber(ARGV[1]) >= len then " +

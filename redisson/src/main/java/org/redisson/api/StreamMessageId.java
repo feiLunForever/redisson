@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 package org.redisson.api;
-
-import java.util.Objects;
 
 /**
  * Stream Message ID object 
@@ -61,26 +59,14 @@ public class StreamMessageId {
     public static final StreamMessageId NEWEST = new StreamMessageId(-1);
 
     /**
-     * Defines id to receive Stream entries since the last message.
-     * <p>
-     * Used in {@link RStream#read}, {@link RStream#createGroup} methods
-     * <p>
-     * Requires Redis 7.4+
-     *
-     */
-    public static final StreamMessageId LAST = new StreamMessageId(-1);
-
-    /**
      * Defines id to receive all Stream entries.
      * <p>
      * Used in {@link RStream#read}, {@link RStream#createGroup} methods
      */
     public static final StreamMessageId ALL = new StreamMessageId(-1);
     
-    private final long id0;
+    private long id0;
     private long id1;
-    
-    private boolean autogenerateSequenceId;
     
     public StreamMessageId(long id0) {
         super();
@@ -91,11 +77,6 @@ public class StreamMessageId {
         super();
         this.id0 = id0;
         this.id1 = id1;
-    }
-    
-    public StreamMessageId autogenerateSequenceId() {
-        this.autogenerateSequenceId = true;
-        return this;
     }
     
     /**
@@ -117,26 +98,34 @@ public class StreamMessageId {
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        StreamMessageId that = (StreamMessageId) o;
-        return id0 == that.id0 && id1 == that.id1 && autogenerateSequenceId == that.autogenerateSequenceId;
+    public int hashCode() {
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + (int) (id0 ^ (id0 >>> 32));
+        result = prime * result + (int) (id1 ^ (id1 >>> 32));
+        return result;
     }
 
     @Override
-    public int hashCode() {
-        return Objects.hash(id0, id1, autogenerateSequenceId);
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        StreamMessageId other = (StreamMessageId) obj;
+        if (id0 != other.id0)
+            return false;
+        if (id1 != other.id1)
+            return false;
+        return true;
     }
     
     @Override
-    @SuppressWarnings("AvoidInlineConditionals")
     public String toString() {
         if (this == NEVER_DELIVERED) {
             return ">";
-        }
-        if (this == LAST) {
-            return "+";
         }
         if (this == NEWEST) {
             return "$";
@@ -154,7 +143,7 @@ public class StreamMessageId {
             return "*";
         }
 
-        return id0 + "-" + (autogenerateSequenceId ? "*" : id1);
+        return id0 + "-" + id1;
     }
     
 }

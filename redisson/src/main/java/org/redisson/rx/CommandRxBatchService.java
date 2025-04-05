@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import org.redisson.api.BatchResult;
 import org.redisson.api.RFuture;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.protocol.RedisCommand;
-import org.redisson.command.BatchService;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.command.CommandBatchService;
 import org.redisson.connection.ConnectionManager;
@@ -38,11 +37,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * @author Nikita Koksharov
  *
  */
-public class CommandRxBatchService extends CommandRxService implements BatchService {
+public class CommandRxBatchService extends CommandRxService {
 
     private final CommandBatchService batchService;
 
-    CommandRxBatchService(ConnectionManager connectionManager, CommandAsyncExecutor executor, BatchOptions options) {
+    public CommandRxBatchService(ConnectionManager connectionManager, CommandAsyncExecutor executor, BatchOptions options) {
         super(connectionManager, executor.getObjectBuilder());
         batchService = new CommandBatchService(executor, options, RedissonObjectBuilder.ReferenceType.RXJAVA);
     }
@@ -77,11 +76,6 @@ public class CommandRxBatchService extends CommandRxService implements BatchServ
 
     public RFuture<BatchResult<?>> executeAsync() {
         return batchService.executeAsync();
-    }
-
-    @Override
-    protected boolean isEvalCacheActive() {
-        return false;
     }
 
     public RFuture<Void> discardAsync() {

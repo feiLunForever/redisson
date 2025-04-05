@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.redisson;
 
-import org.redisson.api.ObjectListener;
 import org.redisson.api.RFuture;
 import org.redisson.api.RLock;
 import org.redisson.api.RLockAsync;
@@ -23,13 +22,8 @@ import org.redisson.client.RedisResponseTimeoutException;
 import org.redisson.misc.CompletableFutureWrapper;
 
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.Lock;
-import java.util.stream.Stream;
 
 /**
  * Groups multiple independent locks and manages them as one lock.
@@ -254,10 +248,6 @@ public class RedissonMultiLock implements RLock {
                 }
             }
 
-            if (leaseTime > 0) {
-                leaseTime = unit.toMillis(leaseTime);
-            }
-
             if (tryLock(waitTime, leaseTime, TimeUnit.MILLISECONDS)) {
                 return;
             }
@@ -287,9 +277,12 @@ public class RedissonMultiLock implements RLock {
     }
     
     protected RFuture<Void> unlockInnerAsync(Collection<RLock> locks, long threadId) {
-        CompletableFuture[] s = locks.stream().map(l -> l.unlockAsync(threadId).toCompletableFuture())
-                                                .toArray(CompletableFuture[]::new);
-        CompletableFuture<Void> future = CompletableFuture.allOf(s);
+        List<CompletableFuture<Void>> futures = new ArrayList<>(locks.size());
+        for (RLock lock : locks) {
+            RFuture<Void> f = lock.unlockAsync(threadId);
+            futures.add(f.toCompletableFuture());
+        }
+        CompletableFuture<Void> future = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         return new CompletableFutureWrapper<>(future);
     }
 
@@ -411,7 +404,15 @@ public class RedissonMultiLock implements RLock {
     
     @Override
     public void unlock() {
-        locks.forEach(Lock::unlock);
+        List<RFuture<Void>> futures = new ArrayList<>(locks.size());
+
+        for (RLock lock : locks) {
+            futures.add(lock.unlockAsync());
+        }
+
+        for (RFuture<Void> future : futures) {
+            future.toCompletableFuture().join();
+        }
     }
 
     @Override
@@ -481,23 +482,12 @@ public class RedissonMultiLock implements RLock {
 
     @Override
     public boolean isHeldByThread(long threadId) {
-        return locks.stream().map(l -> l.isHeldByThread(threadId)).reduce(true, (r, u) -> r && u);
-    }
-
-    @Override
-    public RFuture<Boolean> isHeldByThreadAsync(long threadId) {
-        CompletableFuture<Boolean>[] s = locks.stream().map(l -> l.isHeldByThreadAsync(threadId).toCompletableFuture())
-                                                        .toArray(CompletableFuture[]::new);
-        CompletableFuture<Void> future = CompletableFuture.allOf(s);
-        CompletableFuture<Boolean> f = future.thenApply(v -> Stream.of(s).map(r2 -> r2.getNow(false))
-                                                            .reduce(true, (r, u) -> r && u));
-        return new CompletableFutureWrapper<>(f);
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public boolean isHeldByCurrentThread() {
-        return locks.stream().map(l -> l.isHeldByCurrentThread())
-                                .reduce(true, (r, u) -> r && u);
+        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -515,23 +505,4 @@ public class RedissonMultiLock implements RLock {
         throw new UnsupportedOperationException();
     }
 
-    @Override
-    public int addListener(ObjectListener listener) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void removeListener(int listenerId) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public RFuture<Integer> addListenerAsync(ObjectListener listener) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public RFuture<Void> removeListenerAsync(int listenerId) {
-        throw new UnsupportedOperationException();
-    }
 }

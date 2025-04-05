@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,13 @@
  */
 package org.redisson.reactive;
 
-import org.redisson.BaseRedissonList;
+import java.util.concurrent.Callable;
+
 import org.redisson.api.RBlockingQueue;
 import org.redisson.api.RFuture;
-import reactor.core.publisher.Flux;
+import org.redisson.api.RListAsync;
 
-import java.util.concurrent.Callable;
+import reactor.core.publisher.Flux;
 
 /**
  * 
@@ -33,7 +34,7 @@ public class RedissonBlockingQueueReactive<V> extends RedissonListReactive<V> {
     private final RBlockingQueue<V> queue;
     
     public RedissonBlockingQueueReactive(RBlockingQueue<V> queue) {
-        super((BaseRedissonList<V>) queue);
+        super((RListAsync<V>) queue);
         this.queue = queue;
     }
 

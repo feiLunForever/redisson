@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,23 +24,22 @@ import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.decoder.MultiDecoder;
 import org.redisson.client.protocol.pubsub.*;
-import org.redisson.misc.FastRemovalQueue;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- *
+ * 
  * @author Nikita Koksharov
  *
  */
 public class RedisPubSubConnection extends RedisConnection {
 
-    private static final FastRemovalQueue<RedisPubSubListener<Object>> EMPTY_QUEUE = new FastRemovalQueue<>();
-
-    final Map<ChannelName, FastRemovalQueue<RedisPubSubListener<Object>>> listeners = new ConcurrentHashMap<>();
+    final Queue<RedisPubSubListener<Object>> listeners = new ConcurrentLinkedQueue<>();
     final Map<ChannelName, Codec> channels = new ConcurrentHashMap<>();
     final Map<ChannelName, Codec> shardedChannels = new ConcurrentHashMap<>();
     final Map<ChannelName, Codec> patternChannels = new ConcurrentHashMap<>();
@@ -50,42 +49,28 @@ public class RedisPubSubConnection extends RedisConnection {
         super(redisClient, channel, connectionPromise);
     }
 
-    public void addListener(ChannelName channelName, RedisPubSubListener<?> listener) {
-        FastRemovalQueue<RedisPubSubListener<Object>> queue = listeners.computeIfAbsent(channelName, c -> new FastRemovalQueue<>());
-        queue.add((RedisPubSubListener<Object>) listener);
+    public void addListener(RedisPubSubListener<?> listener) {
+        listeners.add((RedisPubSubListener<Object>) listener);
     }
 
-    public void removeListener(ChannelName channelName, RedisPubSubListener<?> listener) {
-        listeners.compute(channelName, (k, queue) -> {
-            if (queue == null) {
-                return null;
-            }
-
-            queue.remove((RedisPubSubListener<Object>) listener);
-            if (queue.isEmpty()) {
-                return null;
-            }
-            return queue;
-        });
+    public void removeListener(RedisPubSubListener<?> listener) {
+        listeners.remove(listener);
     }
 
     public void onMessage(PubSubStatusMessage message) {
-        FastRemovalQueue<RedisPubSubListener<Object>> queue = listeners.getOrDefault(message.getChannel(), EMPTY_QUEUE);
-        for (RedisPubSubListener<Object> redisPubSubListener : queue) {
+        for (RedisPubSubListener<Object> redisPubSubListener : listeners) {
             redisPubSubListener.onStatus(message.getType(), message.getChannel());
         }
     }
 
     public void onMessage(PubSubMessage message) {
-        FastRemovalQueue<RedisPubSubListener<Object>> queue = listeners.getOrDefault(message.getChannel(), EMPTY_QUEUE);
-        for (RedisPubSubListener<Object> redisPubSubListener : queue) {
+        for (RedisPubSubListener<Object> redisPubSubListener : listeners) {
             redisPubSubListener.onMessage(message.getChannel(), message.getValue());
         }
     }
 
     public void onMessage(PubSubPatternMessage message) {
-        FastRemovalQueue<RedisPubSubListener<Object>> queue = listeners.getOrDefault(message.getPattern(), EMPTY_QUEUE);
-        for (RedisPubSubListener<Object> redisPubSubListener : queue) {
+        for (RedisPubSubListener<Object> redisPubSubListener : listeners) {
             redisPubSubListener.onPatternMessage(message.getPattern(), message.getChannel(), message.getValue());
         }
     }
@@ -94,42 +79,42 @@ public class RedisPubSubConnection extends RedisConnection {
         for (ChannelName ch : channels) {
             this.channels.put(ch, codec);
         }
-        return async(promise, new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SUBSCRIBE, (Object[]) channels);
+        return async(promise, new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SUBSCRIBE, channels);
     }
 
     public ChannelFuture ssubscribe(CompletableFuture<Void> promise, Codec codec, ChannelName... channels) {
         for (ChannelName ch : channels) {
             this.shardedChannels.put(ch, codec);
         }
-        return async(promise, new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SSUBSCRIBE, (Object[]) channels);
+        return async(promise, new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SSUBSCRIBE, channels);
     }
 
     public ChannelFuture psubscribe(CompletableFuture<Void> promise, Codec codec, ChannelName... channels) {
         for (ChannelName ch : channels) {
             patternChannels.put(ch, codec);
         }
-        return async(promise, new PubSubPatternMessageDecoder(codec.getValueDecoder()), RedisCommands.PSUBSCRIBE, (Object[]) channels);
+        return async(promise, new PubSubPatternMessageDecoder(codec.getValueDecoder()), RedisCommands.PSUBSCRIBE, channels);
     }
 
     public ChannelFuture subscribe(Codec codec, ChannelName... channels) {
         for (ChannelName ch : channels) {
             this.channels.put(ch, codec);
         }
-        return async(new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SUBSCRIBE, (Object[]) channels);
+        return async(new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SUBSCRIBE, channels);
     }
 
     public ChannelFuture ssubscribe(Codec codec, ChannelName... channels) {
         for (ChannelName ch : channels) {
             this.shardedChannels.put(ch, codec);
         }
-        return async(new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SSUBSCRIBE, (Object[]) channels);
+        return async(new PubSubMessageDecoder(codec.getValueDecoder()), RedisCommands.SSUBSCRIBE, channels);
     }
 
     public ChannelFuture psubscribe(Codec codec, ChannelName... channels) {
         for (ChannelName ch : channels) {
             patternChannels.put(ch, codec);
         }
-        return async(new PubSubPatternMessageDecoder(codec.getValueDecoder()), RedisCommands.PSUBSCRIBE, (Object[]) channels);
+        return async(new PubSubPatternMessageDecoder(codec.getValueDecoder()), RedisCommands.PSUBSCRIBE, channels);
     }
 
     public ChannelFuture unsubscribe(PubSubType type, ChannelName... channels) {
@@ -165,18 +150,18 @@ public class RedisPubSubConnection extends RedisConnection {
         });
         return future;
     }
-
+    
     public void removeDisconnectListener(ChannelName channel) {
         unsubscribedChannels.remove(channel);
     }
-
+    
     @Override
     public void fireDisconnected() {
         super.fireDisconnected();
 
         unsubscribedChannels.forEach((key, value) -> onMessage(new PubSubStatusMessage(value, key)));
     }
-
+    
     private <T, R> ChannelFuture async(MultiDecoder<Object> messageDecoder, RedisCommand<T> command, Object... params) {
         CompletableFuture<Void> promise = new CompletableFuture<>();
         return channel.writeAndFlush(new CommandData<>(promise, messageDecoder, null, command, params));

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,15 @@ package org.redisson.connection;
 
 import io.netty.channel.EventLoop;
 import io.netty.channel.socket.DatagramChannel;
-import io.netty.channel.socket.SocketChannel;
 import io.netty.resolver.AddressResolver;
 import io.netty.resolver.AddressResolverGroup;
 import io.netty.resolver.InetSocketAddressResolver;
 import io.netty.resolver.NameResolver;
-import io.netty.resolver.dns.*;
+import io.netty.resolver.dns.DnsAddressResolverGroup;
+import io.netty.resolver.dns.DnsServerAddressStreamProvider;
 import io.netty.util.concurrent.EventExecutor;
 import io.netty.util.concurrent.Promise;
 import org.redisson.misc.AsyncSemaphore;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -41,8 +39,6 @@ import java.util.concurrent.Callable;
  *
  */
 public class SequentialDnsAddressResolverFactory implements AddressResolverGroupFactory {
-
-    static final Logger log = LoggerFactory.getLogger(SequentialDnsAddressResolverFactory.class);
 
     static class LimitedInetSocketAddressResolver extends InetSocketAddressResolver {
 
@@ -86,37 +82,16 @@ public class SequentialDnsAddressResolverFactory implements AddressResolverGroup
     private final AsyncSemaphore asyncSemaphore;
 
     public SequentialDnsAddressResolverFactory() {
-        this(2);
+        this(6);
     }
 
-    /**
-     * Creates DNS resolver factory with the specified number of requests
-     * to DNS servers which can be executed at the same moment.
-     *
-     * @param concurrencyLevel number of requests can be executed at the same moment.
-     */
     public SequentialDnsAddressResolverFactory(int concurrencyLevel) {
         asyncSemaphore = new AsyncSemaphore(concurrencyLevel);
     }
 
     @Override
-    public AddressResolverGroup<InetSocketAddress> create(Class<? extends DatagramChannel> channelType,
-                                                          Class<? extends SocketChannel> socketChannelType,
-                                                          DnsServerAddressStreamProvider nameServerProvider) {
-        DnsNameResolverBuilder dnsResolverBuilder = new DnsNameResolverBuilder();
-        try {
-            dnsResolverBuilder.getClass().getMethod("socketChannelType", Class.class, boolean.class);
-            dnsResolverBuilder.socketChannelType(socketChannelType, true);
-        } catch (NoSuchMethodException e) {
-            log.warn("DNS TCP fallback on UDP query timeout disabled. Upgrade Netty to 4.1.105 or higher.");
-            dnsResolverBuilder.socketChannelType(socketChannelType);
-        }
-        dnsResolverBuilder.channelType(channelType)
-                        .nameServerProvider(nameServerProvider)
-                        .resolveCache(new DefaultDnsCache())
-                        .cnameCache(new DefaultDnsCnameCache());
-
-        DnsAddressResolverGroup group = new DnsAddressResolverGroup(dnsResolverBuilder) {
+    public AddressResolverGroup<InetSocketAddress> create(Class<? extends DatagramChannel> channelType, DnsServerAddressStreamProvider nameServerProvider) {
+        DnsAddressResolverGroup group = new DnsAddressResolverGroup(channelType, nameServerProvider) {
             @Override
             protected AddressResolver<InetSocketAddress> newAddressResolver(EventLoop eventLoop, NameResolver<InetAddress> resolver) throws Exception {
                 return new LimitedInetSocketAddressResolver(asyncSemaphore, eventLoop, resolver);

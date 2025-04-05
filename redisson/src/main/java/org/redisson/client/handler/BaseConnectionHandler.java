@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,11 @@ package org.redisson.client.handler;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import org.redisson.client.*;
+import org.redisson.client.RedisClient;
+import org.redisson.client.RedisClientConfig;
+import org.redisson.client.RedisConnection;
+import org.redisson.client.RedisLoadingException;
 import org.redisson.client.protocol.RedisCommands;
-import org.redisson.config.Protocol;
 
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -80,11 +82,6 @@ public abstract class BaseConnectionHandler<C extends RedisConnection> extends C
                 });
         futures.add(f.toCompletableFuture());
 
-        if (redisClient.getConfig().getProtocol() == Protocol.RESP3) {
-            CompletionStage<Object> f1 = connection.async(RedisCommands.HELLO, "3");
-            futures.add(f1.toCompletableFuture());
-        }
-
         if (config.getDatabase() != 0) {
             CompletionStage<Object> future = connection.async(RedisCommands.SELECT, config.getDatabase());
             futures.add(future.toCompletableFuture());
@@ -105,7 +102,7 @@ public abstract class BaseConnectionHandler<C extends RedisConnection> extends C
         CompletableFuture<Void> future = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
         future.whenComplete((res, e) -> {
             if (e != null) {
-                if (e instanceof RedisRetryException) {
+                if (e instanceof RedisLoadingException) {
                     ctx.executor().schedule(() -> {
                         channelActive(ctx);
                     }, 1, TimeUnit.SECONDS);

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 package org.redisson.api;
-
-import org.redisson.api.options.KeysScanOptions;
 
 import java.util.concurrent.TimeUnit;
 
@@ -134,23 +132,7 @@ public interface RKeysAsync {
      * @return amount of existing keys
      */
     RFuture<Long> countExistsAsync(String... names);
-
-    /**
-     * Get all keys using iterable. Keys traversing with SCAN operation.
-     * Each SCAN operation loads up to <code>10</code> keys per request.
-     *
-     * @return Asynchronous Iterable object
-     */
-    AsyncIterator<String> getKeysAsync();
-
-    /**
-     * Get all keys using iterable. Keys traversing with SCAN operation.
-     *
-     * @param options scan options
-     * @return Asynchronous Iterable object
-     */
-    AsyncIterator<String> getKeysAsync(KeysScanOptions options);
-
+    
     /**
      * Get Redis object type by key
      * 
@@ -189,21 +171,6 @@ public interface RKeysAsync {
      * @return number of removed keys
      */
     RFuture<Long> deleteByPatternAsync(String pattern);
-
-    /**
-     * Unlink multiple objects by a key pattern.
-     * <p>
-     * Method executes in <b>NON atomic way</b> in cluster mode due to lua script limitations.
-     * <p>
-     *  Supported glob-style patterns:
-     *    h?llo subscribes to hello, hallo and hxllo
-     *    h*llo subscribes to hllo and heeeello
-     *    h[ae]llo subscribes to hello and hallo, but not hillo
-     *
-     * @param pattern - match pattern
-     * @return number of removed keys
-     */
-    RFuture<Long> unlinkByPatternAsync(String pattern);
 
     /**
      * Delete multiple objects
@@ -281,28 +248,5 @@ public interface RKeysAsync {
      * @return void
      */
     RFuture<Void> flushallParallelAsync();
-
-    /**
-     * Adds global object event listener
-     * which is invoked for each Redisson object.
-     *
-     * @see org.redisson.api.listener.TrackingListener
-     * @see org.redisson.api.listener.SetObjectListener
-     * @see org.redisson.api.listener.NewObjectListener
-     * @see org.redisson.api.listener.FlushListener
-     * @see org.redisson.api.ExpiredObjectListener
-     * @see org.redisson.api.DeletedObjectListener
-     *
-     * @param listener object event listener
-     * @return listener id
-     */
-    RFuture<Integer> addListenerAsync(ObjectListener listener);
-
-    /**
-     * Removes global object event listener
-     *
-     * @param listenerId - listener id
-     */
-    RFuture<Void> removeListenerAsync(int listenerId);
-
+    
 }

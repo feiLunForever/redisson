@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,10 +26,8 @@ import org.redisson.client.protocol.pubsub.PubSubType;
  */
 public interface RedisPubSubListener<V> extends MessageListener<V> {
 
-    default void onStatus(PubSubType type, CharSequence channel) {
-    }
+    boolean onStatus(PubSubType type, CharSequence channel);
 
-    default void onPatternMessage(CharSequence pattern, CharSequence channel, V message) {
-    }
+    void onPatternMessage(CharSequence pattern, CharSequence channel, V message);
 
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 package org.redisson.executor;
 
 import org.redisson.RedissonExecutorService;
-import org.redisson.api.RBlockingQueueAsync;
 import org.redisson.api.RFuture;
 import org.redisson.api.RMap;
 import org.redisson.client.codec.Codec;
@@ -30,6 +29,7 @@ import org.redisson.remote.*;
 
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -43,19 +43,14 @@ public class TasksService extends BaseRemoteService {
     protected String tasksCounterName;
     protected String statusName;
     protected String tasksName;
-    protected String tasksLatchName;
     protected String schedulerQueueName;
     protected String schedulerChannelName;
     protected String tasksRetryIntervalName;
     protected String tasksExpirationTimeName;
     protected long tasksRetryInterval;
     
-    public TasksService(Codec codec, String name, CommandAsyncExecutor commandExecutor, String executorId) {
-        super(codec, name, commandExecutor, executorId);
-    }
-
-    public void setTasksLatchName(String tasksLatchName) {
-        this.tasksLatchName = tasksLatchName;
+    public TasksService(Codec codec, String name, CommandAsyncExecutor commandExecutor, String executorId, ConcurrentMap<String, ResponseEntry> responses) {
+        super(codec, name, commandExecutor, executorId, responses);
     }
 
     public void setTasksExpirationTimeName(String tasksExpirationTimeName) {
@@ -116,8 +111,6 @@ public class TasksService extends BaseRemoteService {
     protected CompletableFuture<Boolean> addAsync(String requestQueueName, RemoteServiceRequest request) {
         TaskParameters params = (TaskParameters) request.getArgs()[0];
 
-        String taskName = tasksLatchName + ":" + request.getId();
-
         long retryStartTime = 0;
         if (tasksRetryInterval > 0) {
             retryStartTime = System.currentTimeMillis() + tasksRetryInterval;
@@ -131,7 +124,6 @@ public class TasksService extends BaseRemoteService {
                         // check if executor service not in shutdown state
                         "if redis.call('exists', KEYS[2]) == 0 then "
                             + "redis.call('hset', KEYS[5], ARGV[2], ARGV[3]);"
-                            + "redis.call('del', KEYS[9]);"
                             + "redis.call('rpush', KEYS[6], ARGV[2]); "
                             + "redis.call('incr', KEYS[1]);"
 
@@ -140,13 +132,12 @@ public class TasksService extends BaseRemoteService {
                             + "end; "
 
                             + "if tonumber(ARGV[1]) > 0 then "
-                                + "local scheduledName = 'ff:' .. ARGV[2];"
                                 + "redis.call('set', KEYS[7], ARGV[4]);"
-                                + "redis.call('zadd', KEYS[3], ARGV[1], scheduledName);"
+                                + "redis.call('zadd', KEYS[3], ARGV[1], 'ff:' .. ARGV[2]);"
                                 + "local v = redis.call('zrange', KEYS[3], 0, 0); "
                                 // if new task added to queue head then publish its startTime
                                 // to all scheduler workers
-                                + "if v[1] == scheduledName then "
+                                + "if v[1] == ARGV[2] then "
                                     + "redis.call('publish', KEYS[4], ARGV[1]); "
                                 + "end; "
                             + "end;"
@@ -154,7 +145,7 @@ public class TasksService extends BaseRemoteService {
                         + "end;"
                         + "return 0;",
                         Arrays.asList(tasksCounterName, statusName, schedulerQueueName, schedulerChannelName,
-                                            tasksName, requestQueueName, tasksRetryIntervalName, tasksExpirationTimeName, taskName),
+                                            tasksName, requestQueueName, tasksRetryIntervalName, tasksExpirationTimeName),
                         retryStartTime, request.getId(), encode(request), tasksRetryInterval, expireTime);
         return f.toCompletableFuture();
     }
@@ -256,9 +247,7 @@ public class TasksService extends BaseRemoteService {
                         return CompletableFuture.completedFuture(resp);
                     });
                 }
-
-                RBlockingQueueAsync<RRemoteServiceResponse> queue = getBlockingQueue(responseQueueName, codec);
-                return queue.removeAsync(response).thenApply(r -> response);
+                return CompletableFuture.completedFuture(response);
             }).whenComplete((r, ex) -> {
                 if (ex != null) {
                     scheduleCancelResponseCheck(mapName, requestId);

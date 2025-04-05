@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -179,19 +179,6 @@ public interface RMultimap<K, V> extends RExpirable, RMultimapAsync<K, V> {
      *     multimap.
      */
     Collection<V> replaceValues(K key, Iterable<? extends V> values);
-
-    /**
-     * Stores a collection of values with the same key, replacing any existing
-     * values for that key. Is faster than {@link #replaceValues} by not returning
-     * the values.
-     *
-     * <p>If {@code values} is empty, this is equivalent to
-     * {@link #removeAll(Object) removeAll(key)}.
-     *
-     * @param key - map key
-     * @param values - map values
-     */
-    void fastReplaceValues(K key, Iterable<? extends V> values);
 
     /**
      * Removes all values associated with the key {@code key}.

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.redisson.cluster;
 
-import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Set;
@@ -51,7 +50,7 @@ public class ClusterNodeInfo {
     private final Set<Flag> flags = EnumSet.noneOf(Flag.class);
     private String slaveOf;
 
-    private final Set<ClusterSlotRange> slotRanges = new HashSet<>();
+    private final Set<ClusterSlotRange> slotRanges = new HashSet<ClusterSlotRange>();
 
     public ClusterNodeInfo(String nodeInfo) {
         this.nodeInfo = nodeInfo;
@@ -75,7 +74,7 @@ public class ClusterNodeInfo {
         slotRanges.add(range);
     }
     public Set<ClusterSlotRange> getSlotRanges() {
-        return Collections.unmodifiableSet(slotRanges);
+        return slotRanges;
     }
 
     public boolean containsFlag(Flag flag) {

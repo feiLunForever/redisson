@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,10 +37,11 @@ public class SubscribeListener extends BaseRedisPubSubListener {
     }
 
     @Override
-    public void onStatus(PubSubType type, CharSequence channel) {
+    public boolean onStatus(PubSubType type, CharSequence channel) {
         if (name.equals(channel) && this.type.equals(type)) {
             promise.complete(null);
         }
+        return true;
     }
 
     public CompletableFuture<Void> getSuccessFuture() {

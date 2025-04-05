@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,10 +21,8 @@ import org.redisson.client.protocol.ScoredEntry;
 
 import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 /**
@@ -202,44 +200,22 @@ public interface RScoredSortedSet<V> extends RScoredSortedSetAsync<V>, Iterable<
     V takeLast();
 
     /**
-     * Use {@link #subscribeOnFirstElements(Function)} instead.
-     *
-     * @param consumer - queue elements listener
-     * @return listenerId - id of listener
-     */
-    @Deprecated
-    int subscribeOnFirstElements(Consumer<V> consumer);
-
-    /**
-     * Use {@link #subscribeOnLastElements(Function)} instead.
-     *
-     * @param consumer - queue elements listener
-     * @return listenerId - id of listener
-     */
-    @Deprecated
-    int subscribeOnLastElements(Consumer<V> consumer);
-
-    /**
      * Subscribes on first elements appeared in this set.
      * Continuously invokes {@link #takeFirstAsync()} method to get a new element.
-     * <p>
-     * NOTE: don't call blocking methods in the elements listener
      *
      * @param consumer - queue elements listener
      * @return listenerId - id of listener
      */
-    int subscribeOnFirstElements(Function<V, CompletionStage<Void>> consumer);
+    int subscribeOnFirstElements(Consumer<V> consumer);
 
     /**
      * Subscribes on last elements appeared in this set.
      * Continuously invokes {@link #takeLastAsync()} method to get a new element.
-     * <p>
-     * NOTE: don't call blocking methods in the elements listener
      *
      * @param consumer - queue elements listener
      * @return listenerId - id of listener
      */
-    int subscribeOnLastElements(Function<V, CompletionStage<Void>> consumer);
+    int subscribeOnLastElements(Consumer<V> consumer);
 
     /**
      * Un-subscribes defined listener.
@@ -1437,7 +1413,6 @@ public interface RScoredSortedSet<V> extends RScoredSortedSetAsync<V>, Iterable<
     /**
      * Adds object event listener
      *
-     * @see org.redisson.api.listener.TrackingListener
      * @see org.redisson.api.listener.ScoredSortedSetAddListener
      * @see org.redisson.api.listener.ScoredSortedSetRemoveListener
      * @see org.redisson.api.ExpiredObjectListener
@@ -1446,7 +1421,6 @@ public interface RScoredSortedSet<V> extends RScoredSortedSetAsync<V>, Iterable<
      * @param listener - object event listener
      * @return listener id
      */
-    @Override
     int addListener(ObjectListener listener);
 
 }

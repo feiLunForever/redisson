@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,12 +29,11 @@ import io.netty.channel.EventLoopGroup;
 import org.redisson.api.NameMapper;
 import org.redisson.api.NatMapper;
 import org.redisson.api.RedissonNodeInitializer;
-import org.redisson.client.FailedNodeDetector;
 import org.redisson.client.NettyHook;
 import org.redisson.client.codec.Codec;
+import org.redisson.cluster.ClusterConnectionManager;
 import org.redisson.codec.ReferenceCodecProvider;
-import org.redisson.connection.AddressResolverGroupFactory;
-import org.redisson.connection.ConnectionListener;
+import org.redisson.connection.*;
 import org.redisson.connection.balancer.LoadBalancer;
 
 import javax.net.ssl.KeyManagerFactory;
@@ -64,12 +63,7 @@ public class ConfigSupport {
 
     }
 
-    @JsonIgnoreProperties({"slaveNotUsed"})
-    public static class ConfigPropsMixIn {
-
-    }
-
-    @JsonIgnoreProperties({"clusterConfig", "sentinelConfig", "singleConfig"})
+    @JsonIgnoreProperties({"clusterConfig", "sentinelConfig"})
     public static class ConfigMixIn {
 
         @JsonProperty
@@ -110,7 +104,9 @@ public class ConfigSupport {
         while (m.find()) {
             String[] parts = m.group(1).split(":-");
             String v = System.getenv(parts[0]);
-            v = System.getProperty(parts[0], v);
+            if (v == null) {
+                v = System.getProperty(parts[0]);
+            }
             if (v != null) {
                 content = content.replace(m.group(), v);
             } else if (parts.length == 2) {
@@ -188,25 +184,34 @@ public class ConfigSupport {
         return yamlMapper.writeValueAsString(config);
     }
 
-    public static BaseConfig<?> getConfig(Config configCopy) {
+    public static ConnectionManager createConnectionManager(Config configCopy) {
+        ServiceManager serviceManager = new ServiceManager(configCopy);
+
+        ConnectionManager cm = null;
         if (configCopy.getMasterSlaveServersConfig() != null) {
             validate(configCopy.getMasterSlaveServersConfig());
-            return configCopy.getMasterSlaveServersConfig();
+            cm = new MasterSlaveConnectionManager(configCopy.getMasterSlaveServersConfig(), serviceManager);
         } else if (configCopy.getSingleServerConfig() != null) {
             validate(configCopy.getSingleServerConfig());
-            return configCopy.getSingleServerConfig();
+            cm = new SingleConnectionManager(configCopy.getSingleServerConfig(), serviceManager);
         } else if (configCopy.getSentinelServersConfig() != null) {
             validate(configCopy.getSentinelServersConfig());
-            return configCopy.getSentinelServersConfig();
+            cm = new SentinelConnectionManager(configCopy.getSentinelServersConfig(), serviceManager);
         } else if (configCopy.getClusterServersConfig() != null) {
             validate(configCopy.getClusterServersConfig());
-            return configCopy.getClusterServersConfig();
+            cm = new ClusterConnectionManager(configCopy.getClusterServersConfig(), serviceManager);
         } else if (configCopy.getReplicatedServersConfig() != null) {
             validate(configCopy.getReplicatedServersConfig());
-            return configCopy.getReplicatedServersConfig();
+            cm = new ReplicatedConnectionManager(configCopy.getReplicatedServersConfig(), serviceManager);
+        } else if (configCopy.getConnectionManager() != null) {
+            cm = configCopy.getConnectionManager();
         }
 
-        throw new IllegalArgumentException("server(s) address(es) not defined!");
+        if (cm == null) {
+            throw new IllegalArgumentException("server(s) address(es) not defined!");
+        }
+        cm.connect();
+        return cm;
     }
 
     private static void validate(SingleServerConfig config) {
@@ -231,7 +236,6 @@ public class ConfigSupport {
         ObjectMapper mapper = new ObjectMapper(mapping);
         
         mapper.addMixIn(Config.class, ConfigMixIn.class);
-        mapper.addMixIn(BaseMasterSlaveServersConfig.class, ConfigPropsMixIn.class);
         mapper.addMixIn(ReferenceCodecProvider.class, ClassMixIn.class);
         mapper.addMixIn(AddressResolverGroupFactory.class, ClassMixIn.class);
         mapper.addMixIn(Codec.class, ClassMixIn.class);
@@ -246,8 +250,7 @@ public class ConfigSupport {
         mapper.addMixIn(ExecutorService.class, ClassMixIn.class);
         mapper.addMixIn(KeyManagerFactory.class, IgnoreMixIn.class);
         mapper.addMixIn(TrustManagerFactory.class, IgnoreMixIn.class);
-        mapper.addMixIn(CommandMapper.class, ClassMixIn.class);
-        mapper.addMixIn(FailedNodeDetector.class, ClassMixIn.class);
+        mapper.addMixIn(CommandMapper .class, ClassMixIn.class);
 
         FilterProvider filterProvider = new SimpleFilterProvider()
                 .addFilter("classFilter", SimpleBeanPropertyFilter.filterOutAllExcept());

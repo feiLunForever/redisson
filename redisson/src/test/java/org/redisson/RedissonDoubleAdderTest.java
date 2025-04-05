@@ -4,7 +4,7 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RDoubleAdder;
 
-public class RedissonDoubleAdderTest extends RedisDockerTest {
+public class RedissonDoubleAdderTest extends BaseTest {
 
     @Test
     public void testSum() {

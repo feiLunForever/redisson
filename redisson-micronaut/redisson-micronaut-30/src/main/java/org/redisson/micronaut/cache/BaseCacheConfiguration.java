@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,8 @@ package org.redisson.micronaut.cache;
 import io.micronaut.core.annotation.NonNull;
 import io.micronaut.core.naming.Named;
 import org.redisson.api.MapOptions;
-import org.redisson.api.map.*;
+import org.redisson.api.map.MapLoader;
+import org.redisson.api.map.MapWriter;
 import org.redisson.client.codec.Codec;
 
 import java.time.Duration;
@@ -36,8 +37,8 @@ public class BaseCacheConfiguration implements Named {
     private final String name;
 
     private Codec codec;
-    private Duration expireAfterWrite = Duration.ZERO;
-    private Duration expireAfterAccess = Duration.ZERO;
+    private Duration expireAfterWrite;
+    private Duration expireAfterAccess;
     private int maxSize;
 
     public BaseCacheConfiguration(String name) {
@@ -160,20 +161,7 @@ public class BaseCacheConfiguration implements Named {
         mapOptions.loader(loader);
     }
 
-    public <K, V> org.redisson.api.options.MapOptions<K, V> getMapOptions() {
-        org.redisson.api.options.MapOptions<K, V> ops = org.redisson.api.options.MapOptions.name(getName());
-        ops.writer((MapWriter<K, V>) mapOptions.getWriter());
-        ops.writeMode(WriteMode.valueOf(mapOptions.getWriteMode().toString()));
-        ops.writerAsync((MapWriterAsync<K, V>) mapOptions.getWriterAsync());
-        ops.writeBehindDelay(mapOptions.getWriteBehindDelay());
-        ops.writeBehindBatchSize(mapOptions.getWriteBehindBatchSize());
-        ops.loader((MapLoader<K, V>) mapOptions.getLoader());
-        ops.loaderAsync((MapLoaderAsync<K, V>) mapOptions.getLoaderAsync());
-        ops.codec(getCodec());
-        return ops;
-    }
-
-    public MapOptions<Object, Object> getOldMapOptions() {
+    public MapOptions<Object, Object> getMapOptions() {
         return mapOptions;
     }
 }

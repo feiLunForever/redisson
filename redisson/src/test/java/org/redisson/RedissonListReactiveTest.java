@@ -48,6 +48,16 @@ public class RedissonListReactiveTest extends BaseReactiveTest {
     }
 
     @Test
+    public void testHashCode() throws InterruptedException {
+        RListReactive<String> list = redisson.getList("list");
+        sync(list.add("a"));
+        sync(list.add("b"));
+        sync(list.add("c"));
+
+        Assertions.assertEquals(126145, list.hashCode());
+    }
+
+    @Test
     public void testAddByIndex() {
         RListReactive<String> test2 = redisson.getList("test2");
         sync(test2.add("foo"));

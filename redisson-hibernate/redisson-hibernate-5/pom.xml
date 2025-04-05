@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.redisson</groupId>
         <artifactId>redisson-hibernate</artifactId>
-        <version>3.45.2-SNAPSHOT</version>
+        <version>3.22.1-SNAPSHOT</version>
         <relativePath>../</relativePath>
     </parent>
 
@@ -12,10 +12,6 @@
     <packaging>jar</packaging>
 
     <name>Redisson/Hibernate-5.0.x-5.1.x</name>
-
-    <properties>
-        <main.basedir>${project.parent.parent.basedir}</main.basedir>
-    </properties>
 
     <dependencies>
        <dependency>
@@ -41,7 +37,7 @@
        <dependency>
             <groupId>org.javassist</groupId>
             <artifactId>javassist</artifactId>
-            <version>3.30.2-GA</version>
+            <version>3.25.0-GA</version>
             <scope>test</scope>
        </dependency>
        <dependency>
@@ -57,12 +53,6 @@
            <scope>test</scope>
        </dependency>
 
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers</artifactId>
-            <scope>test</scope>
-        </dependency>
-
     </dependencies>
 
     <build>
@@ -76,9 +66,8 @@
                         <forkCount>2</forkCount>
                         <reuseForks>true</reuseForks>
                         <argLine>
-                           ${argLine}
                            --add-opens=java.base/java.lang.reflect=ALL-UNNAMED
-                           --add-opens=java.base/java.util=ALL-UNNAMED
+			   --add-opens=java.base/java.util=ALL-UNNAMED
                            -javaagent:"${settings.localRepository}"/org/jmockit/jmockit/1.49/jmockit-1.49.jar
                         </argLine>
                     </configuration>
@@ -86,7 +75,7 @@
 
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.1</version>
+                <version>3.1.2</version>
                 <configuration>
                     <archive>  
                         <manifestEntries>
@@ -96,6 +85,40 @@
                     </archive> 
                 </configuration>
             </plugin>
+
+            <plugin>
+                <groupId>com.mycila</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+                <version>3.0</version>
+                <configuration>
+                    <basedir>${basedir}</basedir>
+                    <header>${basedir}/../../header.txt</header>
+                    <quiet>false</quiet>
+                    <failIfMissing>true</failIfMissing>
+                    <aggregate>false</aggregate>
+                    <includes>
+                        <include>src/main/java/org/redisson/</include>
+                    </includes>
+                    <excludes>
+                        <exclude>target/**</exclude>
+                    </excludes>
+                    <useDefaultExcludes>true</useDefaultExcludes>
+                    <mapping>
+                        <java>JAVADOC_STYLE</java>
+                    </mapping>
+                    <strictCheck>true</strictCheck>
+                    <useDefaultMapping>true</useDefaultMapping>
+                    <encoding>UTF-8</encoding>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
     </build>
 

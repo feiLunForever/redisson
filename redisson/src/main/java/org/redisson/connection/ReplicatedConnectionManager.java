@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,17 @@
  */
 package org.redisson.connection;
 
-import io.netty.util.Timeout;
+import io.netty.util.concurrent.ScheduledFuture;
 import org.redisson.api.NodeType;
 import org.redisson.client.RedisClient;
 import org.redisson.client.RedisConnection;
 import org.redisson.client.RedisConnectionException;
-import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
-import org.redisson.config.*;
+import org.redisson.config.BaseMasterSlaveServersConfig;
+import org.redisson.config.MasterSlaveServersConfig;
+import org.redisson.config.ReadMode;
+import org.redisson.config.ReplicatedServersConfig;
+import org.redisson.connection.ClientConnectionsEntry.FreezeReason;
 import org.redisson.misc.RedisURI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,7 +40,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -56,7 +58,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
 
     private final AtomicReference<InetSocketAddress> currentMaster = new AtomicReference<>();
 
-    private volatile Timeout monitorFuture;
+    private ScheduledFuture<?> monitorFuture;
 
     private enum Role {
         master,
@@ -65,17 +67,12 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
 
     private ReplicatedServersConfig cfg;
 
-    ReplicatedConnectionManager(ReplicatedServersConfig cfg, Config configCopy) {
-        super(cfg, configCopy);
+    public ReplicatedConnectionManager(ReplicatedServersConfig cfg, ServiceManager serviceManager) {
+        super(cfg, serviceManager);
     }
 
     @Override
-    public void doConnect(Function<RedisURI, String> hostnameMapper) {
-        if (cfg.getNodeAddresses().isEmpty()) {
-            throw new IllegalArgumentException("At least one Redis node should be defined!");
-        }
-
-        Exception ex = null;
+    public void connect() {
         for (String address : cfg.getNodeAddresses()) {
             RedisURI addr = new RedisURI(address);
             CompletionStage<RedisConnection> connectionFuture = connectToNode(cfg, addr, addr.getHost());
@@ -83,11 +80,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
             try {
                 connection = connectionFuture.toCompletableFuture().join();
             } catch (Exception e) {
-                if (ex != null) {
-                    ex.addSuppressed(e);
-                } else {
-                    ex = e;
-                }
+                // skip
             }
             if (connection == null) {
                 continue;
@@ -105,14 +98,14 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
         }
 
         if (currentMaster.get() == null) {
-            internalShutdown();
-            throw new RedisConnectionException("Can't connect to servers!", ex);
+            shutdown();
+            throw new RedisConnectionException("Can't connect to servers!");
         }
         if (this.config.getReadMode() != ReadMode.MASTER && this.config.getSlaveAddresses().isEmpty()) {
             log.warn("ReadMode = {}, but slave nodes are not found! Please specify all nodes in replicated mode.", this.config.getReadMode());
         }
 
-        super.doConnect(hostnameMapper);
+        super.connect();
 
         scheduleMasterChangeCheck(cfg);
     }
@@ -135,7 +128,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
             return;
         }
         
-        monitorFuture = serviceManager.newTimeout(t -> {
+        monitorFuture = serviceManager.getGroup().schedule(() -> {
             if (serviceManager.isShuttingDown()) {
                 return;
             }
@@ -174,7 +167,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                 .collect(Collectors.toSet());
 
         for (RedisClient slave : failedSlaves) {
-            if (config.isSlaveNotUsed() || entry.slaveDown(slave.getAddr())) {
+            if (entry.slaveDown(slave.getAddr(), FreezeReason.MANAGER)) {
                 log.info("slave: {} is down", slave);
                 disconnectNode(new RedisURI(slave.getConfig().getAddress().getScheme(),
                                             slave.getAddr().getAddress().getHostAddress(),
@@ -204,8 +197,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                         return CompletableFuture.<Map<String, String>>completedFuture(null);
                     }
 
-                    return connection.async(1, cfg.getRetryInterval(), cfg.getTimeout(),
-                                                StringCodec.INSTANCE, RedisCommands.INFO_REPLICATION);
+                    return connection.async(RedisCommands.INFO_REPLICATION);
                 })
                 .thenCompose(r -> {
                     if (r == null) {
@@ -237,7 +229,7 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                 })
                 .whenComplete((r, ex) -> {
                     if (ex != null) {
-                        log.error("Unable to update node {} status. A new attempt will be made.", uri, ex);
+                        log.error(ex.getMessage(), ex);
                     }
                 })
                 .toCompletableFuture();
@@ -253,22 +245,18 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
                     return;
                 }
 
-                entry.excludeMasterFromSlaves(address);
                 log.info("slave: {} added", address);
             });
+        } else if (entry.slaveUp(address, FreezeReason.MANAGER)) {
+            log.info("slave: {} is up", address);
         }
-
-        return entry.slaveUpAsync(address).thenAccept(r -> {
-            if (r) {
-                log.info("slave: {} is up", address);
-            }
-        });
+        return CompletableFuture.completedFuture(null);
     }
 
     @Override
     public void shutdown(long quietPeriod, long timeout, TimeUnit unit) {
         if (monitorFuture != null) {
-            monitorFuture.cancel();
+            monitorFuture.cancel(true);
         }
         
         closeNodeConnections();

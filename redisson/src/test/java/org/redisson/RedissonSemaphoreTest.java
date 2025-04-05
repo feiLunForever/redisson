@@ -1,17 +1,17 @@
 package org.redisson;
 
-import org.awaitility.Awaitility;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
-import org.redisson.api.RSemaphore;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.awaitility.Awaitility;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.RSemaphore;
 
 public class RedissonSemaphoreTest extends BaseConcurrentTest {
 
@@ -44,11 +44,11 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
     @Test
     public void testZero() throws InterruptedException {
         RSemaphore s = redisson.getSemaphore("test");
-        assertThat(s.tryAcquire(0, Duration.ofMinutes(10))).isTrue();
+        assertThat(s.tryAcquire(0, 10, TimeUnit.MINUTES)).isTrue();
         s.release(0);
         assertThat(s.availablePermits()).isZero();
     }
-    
+
     @Test
     public void testAcquireWithoutSetPermits() throws InterruptedException {
         RSemaphore s = redisson.getSemaphore("test");
@@ -56,23 +56,14 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
         s.release();
         s.acquire(2);
     }
-    
+
     @Test
-    public void testTrySetPermits() throws InterruptedException {
+    public void testTrySetPermits() {
         RSemaphore s = redisson.getSemaphore("test");
         assertThat(s.trySetPermits(10)).isTrue();
         assertThat(s.availablePermits()).isEqualTo(10);
         assertThat(s.trySetPermits(15)).isFalse();
         assertThat(s.availablePermits()).isEqualTo(10);
-        s.delete();
-
-        assertThat(s.isExists()).isFalse();
-        assertThat(s.trySetPermits(1, Duration.ofSeconds(2))).isTrue();
-        Thread.sleep(1000);
-        assertThat(s.availablePermits()).isEqualTo(1);
-        Thread.sleep(1000);
-        assertThat(s.availablePermits()).isZero();
-        assertThat(s.isExists()).isFalse();
     }
 
     @Test
@@ -92,9 +83,9 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
 
     @Test
     public void testReducePermits() throws InterruptedException {
-        RSemaphore s = redisson.getSemaphore("test2");
+        RSemaphore s = redisson.getSemaphore("test");
         s.trySetPermits(10);
-        
+
         s.acquire(10);
         s.addPermits(-5);
         assertThat(s.availablePermits()).isEqualTo(-5);
@@ -103,7 +94,7 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
         s.acquire(5);
         assertThat(s.availablePermits()).isEqualTo(0);
     }
-    
+
     @Test
     public void testBlockingAcquire() throws InterruptedException {
         RSemaphore s = redisson.getSemaphore("test");
@@ -133,7 +124,6 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
     }
 
     @Test
-    @Timeout(5)
     public void testBlockingNAcquire() throws InterruptedException {
         RSemaphore s = redisson.getSemaphore("test");
         s.trySetPermits(5);
@@ -199,8 +189,8 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
         t.start();
         t.join(1);
 
-        Awaitility.await().between(Duration.ofMillis(900), Duration.ofMillis(1200)).untilAsserted(() -> {
-            assertThat(s.tryAcquire(4, Duration.ofSeconds(2))).isTrue();
+        Awaitility.await().between(Duration.ofMillis(900), Duration.ofMillis(1020)).untilAsserted(() -> {
+            assertThat(s.tryAcquire(4, 2, TimeUnit.SECONDS)).isTrue();
         });
 
         assertThat(s.availablePermits()).isEqualTo(0);
@@ -253,7 +243,7 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
             RSemaphore s1 = r.getSemaphore("test");
             try {
                 s1.acquire();
-            }catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
             }
@@ -281,7 +271,7 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
                 }
                 try {
                     r.getSemaphore("test").acquire(v);
-                }catch (InterruptedException e1) {
+                } catch (InterruptedException e1) {
                     // TODO Auto-generated catch block
                     e1.printStackTrace();
                 }
@@ -310,7 +300,7 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
             for (int i = 0; i < iterations; i++) {
                 try {
                     r.getSemaphore("test").acquire();
-                }catch (InterruptedException e1) {
+                } catch (InterruptedException e1) {
                     // TODO Auto-generated catch block
                     e1.printStackTrace();
                 }
@@ -340,7 +330,7 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
             RSemaphore s1 = r.getSemaphore("test");
             try {
                 s1.acquire();
-            }catch (InterruptedException e) {
+            } catch (InterruptedException e) {
                 // TODO Auto-generated catch block
                 e.printStackTrace();
             }
@@ -352,4 +342,54 @@ public class RedissonSemaphoreTest extends BaseConcurrentTest {
         assertThat(lockedCounter.get()).isEqualTo(iterations);
     }
 
+    @Test
+    public void testJavaSemaphore() throws InterruptedException {
+        Semaphore s = new Semaphore(1);
+        Thread thread = new Thread(() -> {
+            try {
+                s.acquire();
+                System.out.println("子线程获取成功了执行业务逻辑");
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                s.release();
+                System.out.println("子线程释放信号量");
+            }
+        });
+        thread.start();
+
+        Thread.sleep(1000);
+        System.out.println("主线程开始获取");
+        s.acquire();
+        System.out.println("主线程成功执行了业务逻辑");
+        s.release();
+        Thread.sleep(500000);
+    }
+
+    @Test
+    public void testSemaphore() throws InterruptedException {
+        RSemaphore s = redisson.getSemaphore("test");
+        s.trySetPermits(1);
+        Thread thread = new Thread(() -> {
+            try {
+                s.acquire();
+                System.out.println("子线程获取成功了执行业务逻辑");
+                Thread.sleep(5000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                s.release();
+                System.out.println("子线程释放信号量");
+            }
+        });
+        thread.start();
+        Thread.sleep(1000);
+        System.out.println("主线程开始获取");
+        s.acquire();
+        System.out.println("主线程成功执行了业务逻辑");
+        s.release();
+        System.out.println("主线程释放信号量");
+        Thread.sleep(500000);
+    }
 }

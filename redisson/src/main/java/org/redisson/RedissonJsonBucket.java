@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,14 +22,8 @@ import org.redisson.client.codec.LongCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommands;
-import org.redisson.client.protocol.RedisStrictCommand;
-import org.redisson.client.protocol.convertor.JsonTypeConvertor;
-import org.redisson.client.protocol.convertor.LongNumberConvertor;
 import org.redisson.client.protocol.convertor.NumberConvertor;
-import org.redisson.client.protocol.decoder.ListFirstObjectDecoder;
-import org.redisson.client.protocol.decoder.ListMultiDecoder2;
 import org.redisson.client.protocol.decoder.ObjectListReplayDecoder;
-import org.redisson.client.protocol.decoder.StringListListReplayDecoder;
 import org.redisson.codec.JsonCodec;
 import org.redisson.codec.JsonCodecWrapper;
 import org.redisson.command.CommandAsyncExecutor;
@@ -51,7 +45,7 @@ import java.util.concurrent.TimeUnit;
  */
 public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBucket<V> {
 
-    public RedissonJsonBucket(JsonCodec codec, CommandAsyncExecutor connectionManager, String name) {
+    public RedissonJsonBucket(JsonCodec<V> codec, CommandAsyncExecutor connectionManager, String name) {
         super(new JsonCodecWrapper(codec), connectionManager, name);
     }
 
@@ -93,25 +87,16 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public RFuture<V> getAsync() {
-        if (getServiceManager().isResp3()) {
-            return commandExecutor.readAsync(getRawName(), codec, RedisCommands.JSON_GET, getRawName(), ".");
-        }
         return commandExecutor.readAsync(getRawName(), codec, RedisCommands.JSON_GET, getRawName());
     }
 
     @Override
-    public <T> T get(JsonCodec codec, String... paths) {
+    public <T> T get(JsonCodec<T> codec, String... paths) {
         return get(getAsync(codec, paths));
     }
 
     @Override
-    public <T> RFuture<T> getAsync(JsonCodec codec, String... paths) {
-        if (getServiceManager().isResp3()) {
-            if (paths.length == 0) {
-                paths = new String[]{"."};
-            }
-        }
-
+    public <T> RFuture<T> getAsync(JsonCodec<T> codec, String... paths) {
         List<Object> args = new ArrayList<>();
         args.add(getRawName());
         args.addAll(Arrays.asList(paths));
@@ -252,23 +237,6 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
     }
 
     @Override
-    public boolean setIfExists(V value, Duration duration) {
-        return get(setIfExistsAsync(value, duration));
-    }
-
-    @Override
-    public RFuture<Boolean> setIfExistsAsync(V value, Duration duration) {
-        return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
-                "local currValue = redis.call('json.set', KEYS[1], '$', ARGV[1], 'XX'); " +
-                      "if currValue ~= false then " +
-                         "redis.call('pexpire', KEYS[1], ARGV[2]); " +
-                         "return 1;" +
-                      "end;" +
-                      "return 0; ",
-                Collections.singletonList(getRawName()), encode(value), duration.toMillis());
-    }
-
-    @Override
     public boolean compareAndSet(V expect, V update) {
         return get(compareAndSetAsync(expect, update));
     }
@@ -355,12 +323,12 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
     }
 
     @Override
-    public <T> T getAndSet(JsonCodec codec, String path, Object newValue) {
+    public <T> T getAndSet(JsonCodec<T> codec, String path, Object newValue) {
         return get(getAndSetAsync(codec, path, newValue));
     }
 
     @Override
-    public <T> RFuture<T> getAndSetAsync(JsonCodec codec, String path, Object newValue) {
+    public <T> RFuture<T> getAndSetAsync(JsonCodec<T> codec, String path, Object newValue) {
         if (newValue == null) {
             return commandExecutor.evalWriteAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.EVAL_OBJECT,
                     "local v = redis.call('json.get', KEYS[1], ARGV[1]); " +
@@ -397,29 +365,6 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
                         "redis.call('pexpire', KEYS[1], ARGV[2]); " +
                         "return currValue; ",
                 Collections.singletonList(getRawName()), encode(value), timeUnit.toMillis(timeToLive));
-    }
-
-    @Override
-    public V getAndSet(V value, Duration duration) {
-        return get(getAndSetAsync(value, duration));
-    }
-
-    @Override
-    public RFuture<V> getAndSetAsync(V value, Duration duration) {
-        if (value == null) {
-            return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_OBJECT,
-                    "local v = redis.call('json.get', KEYS[1]); " +
-                            "redis.call('json.del', KEYS[1]); " +
-                            "return v",
-                    Collections.singletonList(getRawName()));
-        }
-
-        return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_OBJECT,
-                "local currValue = redis.call('json.get', KEYS[1]); " +
-                        "redis.call('json.set', KEYS[1], '$', ARGV[1]); " +
-                        "redis.call('pexpire', KEYS[1], ARGV[2]); " +
-                        "return currValue; ",
-                Collections.singletonList(getRawName()), encode(value), duration.toMillis());
     }
 
     @Override
@@ -495,19 +440,6 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
                         "redis.call('json.set', KEYS[1], '$', ARGV[1]); " +
                               "redis.call('pexpire', KEYS[1], ARGV[2]); ",
                 Collections.singletonList(getRawName()), encode(value), timeUnit.toMillis(timeToLive));
-    }
-
-    @Override
-    public void set(V value, Duration duration) {
-        get(setAsync(value, duration));
-    }
-
-    @Override
-    public RFuture<Void> setAsync(V value, Duration duration) {
-        return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_VOID,
-                        "redis.call('json.set', KEYS[1], '$', ARGV[1]); " +
-                              "redis.call('pexpire', KEYS[1], ARGV[2]); ",
-                Collections.singletonList(getRawName()), encode(value), duration.toMillis());
     }
 
     @Override
@@ -670,62 +602,62 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
     }
 
     @Override
-    public <T> T arrayPollLast(JsonCodec codec, String path) {
+    public <T> T arrayPollLast(JsonCodec<T> codec, String path) {
         return get(arrayPollLastAsync(codec, path));
     }
 
     @Override
-    public <T> RFuture<T> arrayPollLastAsync(JsonCodec codec, String path) {
+    public <T> RFuture<T> arrayPollLastAsync(JsonCodec<T> codec, String path) {
         return commandExecutor.writeAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.JSON_ARRPOP, getRawName(), path);
     }
 
     @Override
-    public <T> List<T> arrayPollLastMulti(JsonCodec codec, String path) {
+    public <T> List<T> arrayPollLastMulti(JsonCodec<T> codec, String path) {
         return get(arrayPollLastMultiAsync(codec, path));
     }
 
     @Override
-    public <T> RFuture<List<T>> arrayPollLastMultiAsync(JsonCodec codec, String path) {
+    public <T> RFuture<List<T>> arrayPollLastMultiAsync(JsonCodec<T> codec, String path) {
         return commandExecutor.writeAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.JSON_ARRPOP_LIST, getRawName(), path);
     }
 
     @Override
-    public <T> T arrayPollFirst(JsonCodec codec, String path) {
+    public <T> T arrayPollFirst(JsonCodec<T> codec, String path) {
         return get(arrayPollFirstAsync(codec, path));
     }
 
     @Override
-    public <T> RFuture<T> arrayPollFirstAsync(JsonCodec codec, String path) {
+    public <T> RFuture<T> arrayPollFirstAsync(JsonCodec<T> codec, String path) {
         return commandExecutor.writeAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.JSON_ARRPOP, getRawName(), path, 0);
     }
 
     @Override
-    public <T> List<T> arrayPollFirstMulti(JsonCodec codec, String path) {
+    public <T> List<T> arrayPollFirstMulti(JsonCodec<T> codec, String path) {
         return get(arrayPollFirstMultiAsync(codec, path));
     }
 
     @Override
-    public <T> RFuture<List<T>> arrayPollFirstMultiAsync(JsonCodec codec, String path) {
+    public <T> RFuture<List<T>> arrayPollFirstMultiAsync(JsonCodec<T> codec, String path) {
         return commandExecutor.writeAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.JSON_ARRPOP_LIST, getRawName(), path, 0);
     }
 
     @Override
-    public <T> T arrayPop(JsonCodec codec, String path, long index) {
+    public <T> T arrayPop(JsonCodec<T> codec, String path, long index) {
         return get(arrayPopAsync(codec, path, index));
     }
 
     @Override
-    public <T> RFuture<T> arrayPopAsync(JsonCodec codec, String path, long index) {
+    public <T> RFuture<T> arrayPopAsync(JsonCodec<T> codec, String path, long index) {
         return commandExecutor.writeAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.JSON_ARRPOP, getRawName(), path, index);
     }
 
     @Override
-    public <T> List<T> arrayPopMulti(JsonCodec codec, String path, long index) {
+    public <T> List<T> arrayPopMulti(JsonCodec<T> codec, String path, long index) {
         return get(arrayPopMultiAsync(codec, path, index));
     }
 
     @Override
-    public <T> RFuture<List<T>> arrayPopMultiAsync(JsonCodec codec, String path, long index) {
+    public <T> RFuture<List<T>> arrayPopMultiAsync(JsonCodec<T> codec, String path, long index) {
         return commandExecutor.writeAsync(getRawName(), new JsonCodecWrapper(codec), RedisCommands.JSON_ARRPOP_LIST, getRawName(), path, index);
     }
 
@@ -776,13 +708,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public <T extends Number> RFuture<T> incrementAndGetAsync(String path, T delta) {
-        RedisCommand command;
-        if (getServiceManager().isResp3()) {
-            command = new RedisCommand<>("JSON.NUMINCRBY", new ListFirstObjectDecoder(), new LongNumberConvertor(delta.getClass()));
-        } else {
-            command = new RedisCommand<>("JSON.NUMINCRBY", new NumberConvertor(delta.getClass()));
-        }
-        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, command,
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, new RedisCommand<>("JSON.NUMINCRBY", new NumberConvertor(delta.getClass())),
                                             getRawName(), path, new BigDecimal(delta.toString()).toPlainString());
     }
 
@@ -805,12 +731,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public RFuture<Long> countKeysAsync() {
-        RedisStrictCommand command = RedisCommands.JSON_OBJLEN;
-        if (getServiceManager().isResp3()) {
-            command = new RedisStrictCommand("JSON.OBJLEN", new ListFirstObjectDecoder());
-        }
-
-        return commandExecutor.writeAsync(getRawName(), LongCodec.INSTANCE, command, getRawName());
+        return commandExecutor.writeAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.JSON_OBJLEN, getRawName());
     }
 
     @Override
@@ -840,12 +761,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public RFuture<List<String>> getKeysAsync() {
-        RedisCommand command = RedisCommands.JSON_OBJKEYS;
-        if (getServiceManager().isResp3()) {
-            command = new RedisCommand("JSON.OBJKEYS",
-                    new ListMultiDecoder2(new ListFirstObjectDecoder(), new StringListListReplayDecoder()));
-        }
-        return commandExecutor.readAsync(getRawName(), LongCodec.INSTANCE, command, getRawName());
+        return commandExecutor.readAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.JSON_OBJKEYS, getRawName());
     }
 
     @Override
@@ -895,12 +811,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public RFuture<JsonType> getTypeAsync() {
-        RedisCommand command = RedisCommands.JSON_TYPE;
-        if (getServiceManager().isResp3()) {
-            command = new RedisCommand("JSON.TYPE", new ListFirstObjectDecoder(), new JsonTypeConvertor());
-        }
-
-        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, command, getRawName());
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.JSON_TYPE, getRawName());
     }
 
     @Override
@@ -910,12 +821,7 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
 
     @Override
     public RFuture<JsonType> getTypeAsync(String path) {
-        RedisCommand command = RedisCommands.JSON_TYPE;
-        if (getServiceManager().isResp3()) {
-            command = new RedisCommand("JSON.TYPE", new ListFirstObjectDecoder(), new JsonTypeConvertor());
-        }
-
-        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, command, getRawName(), path);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.JSON_TYPE, getRawName(), path);
     }
 
     @Override
@@ -928,33 +834,4 @@ public class RedissonJsonBucket<V> extends RedissonExpirable implements RJsonBuc
         return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.JSON_DEL_LONG, getRawName(), path);
     }
 
-    @Override
-    public void merge(String path, Object value) {
-        get(mergeAsync(path, value));
-    }
-
-    @Override
-    public RFuture<Void> mergeAsync(String path, Object value) {
-        return commandExecutor.writeAsync(getRawName(), codec, RedisCommands.JSON_MERGE, getRawName(), path, encode(value));
-    }
-
-    @Override
-    public V findCommon(String name) {
-        return get(findCommonAsync(name));
-    }
-
-    @Override
-    public RFuture<V> findCommonAsync(String name) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public long findCommonLength(String name) {
-        return get(findCommonLengthAsync(name));
-    }
-
-    @Override
-    public RFuture<Long> findCommonLengthAsync(String name) {
-        throw new UnsupportedOperationException();
-    }
 }

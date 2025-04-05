@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,11 +45,11 @@ public class ListFirstObjectDecoder implements MultiDecoder<Object> {
     }
 
     @Override
-    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state, long size) {
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
         if (inner != null) {
-            return inner.getDecoder(codec, paramNum, state, size);
+            return inner.getDecoder(codec, paramNum, state);
         }
-        return MultiDecoder.super.getDecoder(codec, paramNum, state, size);
+        return MultiDecoder.super.getDecoder(codec, paramNum, state);
     }
 
     @Override

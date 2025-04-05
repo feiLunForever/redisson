@@ -12,13 +12,14 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.redisson.RedisRunner.KEYSPACE_EVENTS_OPTIONS.s;
 
 /**
  *
  * @author Nikita Koksharov
  *
  */
-public class RedissonTimeSeriesTest extends RedisDockerTest {
+public class RedissonTimeSeriesTest extends BaseTest {
 
     @Test
     public void testMultipleValues() {
@@ -59,7 +60,7 @@ public class RedissonTimeSeriesTest extends RedisDockerTest {
         RTimeSeries<String, Object> t = redisson.getTimeSeries("test");
         t.add(1, "10", 1, TimeUnit.SECONDS);
 
-        Thread.sleep(6000);
+        Thread.sleep(5000);
 
         assertThat(redisson.getKeys().count()).isZero();
     }

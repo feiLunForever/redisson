@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,8 +15,6 @@
  */
 package org.redisson.api;
 
-import java.util.Collection;
-
 /**
  * Distributed implementation of Bloom filter based on Highway 128-bit hash.
  *
@@ -24,7 +22,7 @@ import java.util.Collection;
  *
  * @param <T> - type of object
  */
-public interface RBloomFilter<T> extends RExpirable, RBloomFilterAsync<T> {
+public interface RBloomFilter<T> extends RExpirable {
 
     /**
      * Adds element
@@ -36,29 +34,13 @@ public interface RBloomFilter<T> extends RExpirable, RBloomFilterAsync<T> {
     boolean add(T object);
 
     /**
-     * Adds elements
-     *
-     * @param elements elements to add
-     * @return number of added elements
-     */
-    long add(Collection<T> elements);
-
-    /**
-     * Checks for element presence
+     * Check for element present
      * 
-     * @param object element
+     * @param object - element
      * @return <code>true</code> if element is present
      *         <code>false</code> if element is not present
      */
     boolean contains(T object);
-
-    /**
-     * Checks for elements presence
-     *
-     * @param elements elements to check presence
-     * @return number of elements present
-     */
-    long contains(Collection<T> elements);
 
     /**
      * Initializes Bloom filter params (size and hashIterations)

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,13 +22,10 @@ import org.redisson.api.search.aggregate.*;
 import org.redisson.api.search.index.*;
 import org.redisson.api.search.query.*;
 import org.redisson.client.codec.Codec;
-import org.redisson.client.codec.DoubleCodec;
 import org.redisson.client.codec.LongCodec;
 import org.redisson.client.codec.StringCodec;
-import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.RedisStrictCommand;
-import org.redisson.client.protocol.convertor.EmptyMapConvertor;
 import org.redisson.client.protocol.decoder.*;
 import org.redisson.codec.CompositeCodec;
 import org.redisson.command.CommandAsyncExecutor;
@@ -49,13 +46,12 @@ public class RedissonSearch implements RSearch {
     private final Codec codec;
     private final CommandAsyncExecutor commandExecutor;
 
-    public RedissonSearch(CommandAsyncExecutor commandExecutor) {
-        this.codec = commandExecutor.getServiceManager().getCfg().getCodec();
-        this.commandExecutor = commandExecutor;
-    }
-
     public RedissonSearch(Codec codec, CommandAsyncExecutor commandExecutor) {
-        this.codec = commandExecutor.getServiceManager().getCodec(codec);
+        if (codec == null) {
+            this.codec = commandExecutor.getServiceManager().getCfg().getCodec();
+        } else {
+            this.codec = codec;
+        }
         this.commandExecutor = commandExecutor;
     }
 
@@ -123,14 +119,10 @@ public class RedissonSearch implements RSearch {
         if (options.isNoFreqs()) {
             args.add("NOFREQS");
         }
-        if (options.getStopwords() != null) {
+        if (!options.getStopwords().isEmpty()) {
             args.add("STOPWORDS");
-            if (options.getStopwords().isEmpty()) {
-                args.add(0);
-            } else {
-                args.add(options.getStopwords().size());
-                args.addAll(options.getStopwords());
-            }
+            args.add(options.getStopwords().size());
+            args.addAll(options.getStopwords());
         }
         if (options.isSkipInitialScan()) {
             args.add("SKIPINITIALSCAN");
@@ -153,13 +145,9 @@ public class RedissonSearch implements RSearch {
         if (field instanceof HNSWVectorIndex) {
             HNSWVectorIndexParams params = (HNSWVectorIndexParams) field;
             args.add(params.getFieldName());
-            if (params.getAs() != null) {
-                args.add("AS");
-                args.add(params.getAs());
-            }
             args.add("VECTOR");
             args.add("HNSW");
-            args.add(params.getCount()*2);
+            args.add(params.getCount());
             args.add("TYPE");
             args.add(params.getType());
             args.add("DIM");
@@ -194,13 +182,9 @@ public class RedissonSearch implements RSearch {
         if (field instanceof FlatVectorIndex) {
             FlatVectorIndexParams params = (FlatVectorIndexParams) field;
             args.add(params.getFieldName());
-            if (params.getAs() != null) {
-                args.add("AS");
-                args.add(params.getAs());
-            }
             args.add("VECTOR");
             args.add("FLAT");
-            args.add(params.getCount()*2);
+            args.add(params.getCount());
             args.add("TYPE");
             args.add(params.getType());
             args.add("DIM");
@@ -237,9 +221,6 @@ public class RedissonSearch implements RSearch {
             if (params.isNoIndex()) {
                 args.add("NOINDEX");
             }
-            if (params.isIndexMissing()) {
-                args.add("INDEXMISSING");
-            }
         }
     }
 
@@ -261,9 +242,6 @@ public class RedissonSearch implements RSearch {
             if (params.isNoIndex()) {
                 args.add("NOINDEX");
             }
-            if (params.isIndexMissing()) {
-                args.add("INDEXMISSING");
-            }
         }
     }
 
@@ -276,16 +254,6 @@ public class RedissonSearch implements RSearch {
                 args.add(params.getAs());
             }
             args.add("TAG");
-            if (params.isCaseSensitive()) {
-                args.add("CASESENSITIVE");
-            }
-            if (params.getSeparator() != null) {
-                args.add("SEPARATOR");
-                args.add(params.getSeparator());
-            }
-            if (params.isWithSuffixTrie()) {
-                args.add("WITHSUFFIXTRIE");
-            }
             if (params.getSortMode() != null) {
                 args.add("SORTABLE");
                 if (params.getSortMode() == SortMode.UNNORMALIZED) {
@@ -295,11 +263,15 @@ public class RedissonSearch implements RSearch {
             if (params.isNoIndex()) {
                 args.add("NOINDEX");
             }
-            if (params.isIndexEmpty()) {
-                args.add("INDEXEMPTY");
+            if (params.getSeparator() != null) {
+                args.add("SEPARATOR");
+                args.add(params.getSeparator());
             }
-            if (params.isIndexMissing()) {
-                args.add("INDEXMISSING");
+            if (params.isCaseSensitive()) {
+                args.add("CASESENSITIVE");
+            }
+            if (params.isWithSuffixTrie()) {
+                args.add("WITHSUFFIXTRIE");
             }
         }
     }
@@ -313,8 +285,17 @@ public class RedissonSearch implements RSearch {
                 args.add(params.getAs());
             }
             args.add("TEXT");
+            if (params.getSortMode() != null) {
+                args.add("SORTABLE");
+                if (params.getSortMode() == SortMode.UNNORMALIZED) {
+                    args.add("UNF");
+                }
+            }
             if (params.isNoStem()) {
                 args.add("NOSTEM");
+            }
+            if (params.isNoIndex()) {
+                args.add("NOINDEX");
             }
             if (params.getMatcher() != null) {
                 args.add("PHONETIC");
@@ -326,21 +307,6 @@ public class RedissonSearch implements RSearch {
             }
             if (params.isWithSuffixTrie()) {
                 args.add("WITHSUFFIXTRIE");
-            }
-            if (params.getSortMode() != null) {
-                args.add("SORTABLE");
-                if (params.getSortMode() == SortMode.UNNORMALIZED) {
-                    args.add("UNF");
-                }
-            }
-            if (params.isNoIndex()) {
-                args.add("NOINDEX");
-            }
-            if (params.isIndexEmpty()) {
-                args.add("INDEXEMPTY");
-            }
-            if (params.isIndexMissing()) {
-                args.add("INDEXMISSING");
             }
         }
     }
@@ -405,18 +371,13 @@ public class RedissonSearch implements RSearch {
         if (!options.getReturnAttributes().isEmpty()) {
             args.add("RETURN");
             args.add(options.getReturnAttributes().size());
-            int pos = args.size() - 1;
-            int amount = 0;
             for (ReturnAttribute attr : options.getReturnAttributes()) {
                 args.add(attr.getIdentifier());
-                amount++;
                 if (attr.getProperty() != null) {
                     args.add("AS");
                     args.add(attr.getProperty());
-                    amount += 2;
                 }
             }
-            args.set(pos, amount);
         }
         if (options.getSummarize() != null) {
             args.add("SUMMARIZE");
@@ -484,9 +445,6 @@ public class RedissonSearch implements RSearch {
             if (options.getSortOrder() != null) {
                 args.add(options.getSortOrder());
             }
-            if (options.isWithCount()) {
-                args.add("WITHCOUNT");
-            }
         }
         if (options.getOffset() != null
                 && options.getCount() != null) {
@@ -495,9 +453,6 @@ public class RedissonSearch implements RSearch {
             args.add(options.getCount());
         }
         if (!options.getParams().isEmpty()) {
-            if (options.getDialect() == null || options.getDialect() < 2) {
-                throw new IllegalArgumentException("When use 'PARAMS', you should set DIALECT to 2 or greater than 2.");
-            }
             args.add("PARAMS");
             args.add(options.getParams().size()*2);
             for (Map.Entry<String, Object> entry : options.getParams().entrySet()) {
@@ -510,19 +465,10 @@ public class RedissonSearch implements RSearch {
             args.add(options.getDialect());
         }
 
-        RedisStrictCommand<SearchResult> command;
-        if (commandExecutor.getServiceManager().isResp3()) {
-            command = new RedisStrictCommand<>("FT.SEARCH",
-                    new ListMultiDecoder2(new SearchResultDecoderV2(),
-                            new ObjectListReplayDecoder(),
-                            new ObjectMapReplayDecoder(),
-                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
-        } else {
-            command = new RedisStrictCommand<>("FT.SEARCH",
-                    new ListMultiDecoder2(new SearchResultDecoder(),
-                                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec)),
-                                            new ObjectListReplayDecoder()));
-        }
+        RedisStrictCommand<SearchResult> command = new RedisStrictCommand<>("FT.SEARCH",
+                new ListMultiDecoder2(new SearchResultDecoder(),
+                                        new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec)),
+                                        new ObjectListReplayDecoder()));
 
         return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
     }
@@ -587,9 +533,9 @@ public class RedissonSearch implements RSearch {
                 }
             }
         }
-        if (!options.getSortedByFields().isEmpty()) {
+        if (options.getSortedByFields().isEmpty()) {
             args.add("SORTBY");
-            args.add(options.getSortedByFields().size()*2);
+            args.add(options.getSortedByFields().size());
             for (SortedField sortedByField : options.getSortedByFields()) {
                 args.add(sortedByField.getName());
                 args.add(sortedByField.getOrder());
@@ -598,14 +544,10 @@ public class RedissonSearch implements RSearch {
                 args.add("MAX");
                 args.add(options.getSortedByMax());
             }
-            if (options.isSortedByWithCount()) {
-                args.add("WITHCOUNT");
-            }
         }
         for (Expression expression : options.getExpressions()) {
             args.add("APPLY");
             args.add(expression.getValue());
-            args.add("AS");
             args.add(expression.getAs());
         }
         if (options.getOffset() != null
@@ -620,13 +562,13 @@ public class RedissonSearch implements RSearch {
         }
         if (options.isWithCursor()) {
             args.add("WITHCURSOR");
-            if (options.getCursorCount() != null) {
+            if (options.getCount() != null) {
                 args.add("COUNT");
-                args.add(options.getCursorCount());
+                args.add(options.getCount());
             }
             if (options.getCursorMaxIdle() != null) {
-                args.add("MAXIDLE");
-                args.add(options.getCursorMaxIdle());
+                args.add("COUNT");
+                args.add(options.getCount());
             }
         }
         if (!options.getParams().isEmpty()) {
@@ -642,38 +584,19 @@ public class RedissonSearch implements RSearch {
             args.add(options.getDialect());
         }
 
-        int reducers = options.getGroupByParams().stream()
-                                                 .mapToInt(g -> g.getReducers().size())
-                                                 .sum();
         RedisStrictCommand<AggregationResult> command;
-        if (commandExecutor.getServiceManager().isResp3()) {
-            if (options.isWithCursor()) {
-                command = new RedisStrictCommand<>("FT.AGGREGATE",
-                        new ListMultiDecoder2(new AggregationCursorResultDecoderV2(),
-                                new ObjectListReplayDecoder(),
-                                new ObjectListReplayDecoder(),
-                                new ObjectMapReplayDecoder(),
-                                new AggregationEntryDecoder(new CompositeCodec(StringCodec.INSTANCE, codec), reducers)));
-            } else {
-                command = new RedisStrictCommand<>("FT.AGGREGATE",
-                        new ListMultiDecoder2(new AggregationResultDecoderV2(),
-                                new ObjectListReplayDecoder(),
-                                new ObjectMapReplayDecoder(),
-                                new AggregationEntryDecoder(new CompositeCodec(StringCodec.INSTANCE, codec), reducers)));
-            }
+        if (options.isWithCursor()) {
+            command = new RedisStrictCommand<>("FT.AGGREGATE",
+                    new ListMultiDecoder2(new AggregationCursorResultDecoder(),
+                            new ObjectListReplayDecoder(),
+                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
         } else {
-            if (options.isWithCursor()) {
-                command = new RedisStrictCommand<>("FT.AGGREGATE",
-                        new ListMultiDecoder2(new AggregationCursorResultDecoder(),
-                                new ObjectListReplayDecoder(),
-                                new AggregationEntryDecoder(new CompositeCodec(StringCodec.INSTANCE, codec), reducers)));
-            } else {
-                command = new RedisStrictCommand<>("FT.AGGREGATE",
-                        new ListMultiDecoder2(new AggregationResultDecoder(),
-                                new AggregationEntryDecoder(new CompositeCodec(StringCodec.INSTANCE, codec), reducers),
-                                new ObjectListReplayDecoder()));
-            }
+            command = new RedisStrictCommand<>("FT.AGGREGATE",
+                    new ListMultiDecoder2(new AggregationResultDecoder(),
+                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec)),
+                            new ObjectListReplayDecoder()));
         }
+
 
         return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
     }
@@ -772,20 +695,10 @@ public class RedissonSearch implements RSearch {
 
     @Override
     public RFuture<AggregationResult> readCursorAsync(String indexName, long cursorId) {
-        RedisStrictCommand command;
-        if (commandExecutor.getServiceManager().isResp3()) {
-            command = new RedisStrictCommand<>("FT.CURSOR", "READ",
-                    new ListMultiDecoder2(new AggregationCursorResultDecoderV2(),
-                            new ObjectListReplayDecoder(),
-                            new ObjectListReplayDecoder(),
-                            new ObjectMapReplayDecoder(),
-                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
-        } else {
-            command = new RedisStrictCommand<>("FT.CURSOR", "READ",
-                    new ListMultiDecoder2(new AggregationCursorResultDecoder(),
-                            new ObjectListReplayDecoder(),
-                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
-        }
+        RedisStrictCommand command = new RedisStrictCommand<>("FT.CURSOR", "READ",
+                new ListMultiDecoder2(new AggregationCursorResultDecoder(),
+                        new ObjectListReplayDecoder(),
+                        new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
 
         return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, indexName, cursorId);
     }
@@ -838,7 +751,7 @@ public class RedissonSearch implements RSearch {
 
     @Override
     public RFuture<List<String>> dumpDictAsync(String dictionary) {
-        return commandExecutor.readAsync(dictionary, StringCodec.INSTANCE, RedisCommands.FT_DICTDUMP, dictionary);
+        return commandExecutor.readAsync(dictionary, LongCodec.INSTANCE, RedisCommands.FT_DICTDUMP, dictionary);
     }
 
     @Override
@@ -903,17 +816,7 @@ public class RedissonSearch implements RSearch {
             args.add(options.getDialect());
         }
 
-        RedisCommand<Map<String, Map<String, Object>>> command = RedisCommands.FT_SPELLCHECK;
-        if (commandExecutor.getServiceManager().isResp3()) {
-            command = new RedisCommand<>("FT.SPELLCHECK",
-                    new ListMultiDecoder2(
-                            new ListObjectDecoder(1),
-                            new ObjectMapReplayDecoder(),
-                            new ListFirstObjectDecoder(new EmptyMapConvertor()),
-                            new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, DoubleCodec.INSTANCE))));
-        }
-
-        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
+        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, RedisCommands.FT_SPELLCHECK, args.toArray());
     }
 
     @Override
@@ -938,15 +841,5 @@ public class RedissonSearch implements RSearch {
         args.add(synonymGroupId);
         args.addAll(Arrays.asList(terms));
         return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, RedisCommands.FT_SYNUPDATE, args.toArray());
-    }
-
-    @Override
-    public List<String> getIndexes() {
-        return commandExecutor.get(getIndexesAsync());
-    }
-
-    @Override
-    public RFuture<List<String>> getIndexesAsync() {
-        return commandExecutor.readAsync((String) null, StringCodec.INSTANCE, RedisCommands.FT_LIST);
     }
 }

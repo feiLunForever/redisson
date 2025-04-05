@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,9 +47,13 @@ public class RedissonFairLock extends RedissonLock implements RLock {
     private final String timeoutSetName;
 
     public RedissonFairLock(CommandAsyncExecutor commandExecutor, String name) {
+        this(commandExecutor, name, 60000*5);
+    }
+
+    public RedissonFairLock(CommandAsyncExecutor commandExecutor, String name, long threadWaitTime) {
         super(commandExecutor, name);
         this.commandExecutor = commandExecutor;
-        this.threadWaitTime = getServiceManager().getCfg().getFairLockWaitTimeout();
+        this.threadWaitTime = threadWaitTime;
         threadsQueueName = prefixName("redisson_lock_queue", name);
         timeoutSetName = prefixName("redisson_lock_timeout", name);
     }
@@ -73,7 +77,7 @@ public class RedissonFairLock extends RedissonLock implements RLock {
             wait = unit.toMillis(waitTime);
         }
 
-        RFuture<Void> f = evalWriteSyncedNoRetryAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_VOID,
+        RFuture<Void> f = evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_VOID,
                 // get the existing timeout for the thread to remove
                 "local queue = redis.call('lrange', KEYS[1], 0, -1);" +
                         // find the location in the queue where the thread is
@@ -105,15 +109,15 @@ public class RedissonFairLock extends RedissonLock implements RLock {
 
         long currentTime = System.currentTimeMillis();
         if (command == RedisCommands.EVAL_NULL_BOOLEAN) {
-            return commandExecutor.syncedEvalNoRetry(getRawName(), LongCodec.INSTANCE, command,
+            return commandExecutor.syncedEval(getRawName(), LongCodec.INSTANCE, command,
                     // remove stale threads
                     "while true do " +
                         "local firstThreadId2 = redis.call('lindex', KEYS[2], 0);" +
                         "if firstThreadId2 == false then " +
                             "break;" +
                         "end;" +
-                        "local timeout = redis.call('zscore', KEYS[3], firstThreadId2);" +
-                        "if timeout ~= false and tonumber(timeout) <= tonumber(ARGV[3]) then " +
+                        "local timeout = tonumber(redis.call('zscore', KEYS[3], firstThreadId2));" +
+                        "if timeout <= tonumber(ARGV[3]) then " +
                             // remove the item from the queue and timeout set
                             // NOTE we do not alter any other timeout
                             "redis.call('zrem', KEYS[3], firstThreadId2);" +
@@ -150,16 +154,19 @@ public class RedissonFairLock extends RedissonLock implements RLock {
         }
 
         if (command == RedisCommands.EVAL_LONG) {
-            return commandExecutor.syncedEvalNoRetry(getRawName(), LongCodec.INSTANCE, command,
+            return commandExecutor.syncedEval(getRawName(), LongCodec.INSTANCE, command,
                     // remove stale threads
                     "while true do " +
+                            //list里面是否有线程存在
                         "local firstThreadId2 = redis.call('lindex', KEYS[2], 0);" +
                         "if firstThreadId2 == false then " +
+                            //没有，跳出循环
                             "break;" +
                         "end;" +
 
-                        "local timeout = redis.call('zscore', KEYS[3], firstThreadId2);" +
-                        "if timeout ~= false and tonumber(timeout) <= tonumber(ARGV[4]) then " +
+                            //如果存在，就去zset里面获取这个线程的超时时间
+                        "local timeout = tonumber(redis.call('zscore', KEYS[3], firstThreadId2));" +
+                        "if timeout <= tonumber(ARGV[4]) then " +
                             // remove the item from the queue and timeout set
                             // NOTE we do not alter any other timeout
                             "redis.call('zrem', KEYS[3], firstThreadId2);" +
@@ -172,6 +179,7 @@ public class RedissonFairLock extends RedissonLock implements RLock {
                     // check if the lock can be acquired now
                     "if (redis.call('exists', KEYS[1]) == 0) " +
                         "and ((redis.call('exists', KEYS[2]) == 0) " +
+                            //
                             "or (redis.call('lindex', KEYS[2], 0) == ARGV[2])) then " +
 
                         // remove this thread from the queue and timeout set
@@ -181,6 +189,7 @@ public class RedissonFairLock extends RedissonLock implements RLock {
                         // decrease timeouts for all waiting in the queue
                         "local keys = redis.call('zrange', KEYS[3], 0, -1);" +
                         "for i = 1, #keys, 1 do " +
+                            //todo
                             "redis.call('zincrby', KEYS[3], -tonumber(ARGV[3]), keys[i]);" +
                         "end;" +
 
@@ -201,12 +210,11 @@ public class RedissonFairLock extends RedissonLock implements RLock {
                     // check if the thread is already in the queue
                     "local timeout = redis.call('zscore', KEYS[3], ARGV[2]);" +
                     "if timeout ~= false then " +
-                            "local ttl = redis.call('pttl', KEYS[1]);" +
-                            "return math.max(0, ttl); " +
                         // the real timeout is the timeout of the prior thread
                         // in the queue, but this is approximately correct, and
                         // avoids having to traverse the queue
-//                        "return timeout - tonumber(ARGV[3]) - tonumber(ARGV[4]);" +
+                            //todo
+                        "return timeout - tonumber(ARGV[3]) - tonumber(ARGV[4]);" +
                     "end;" +
 
                     // add the thread to the queue at the end, and set its timeout in the timeout set to the timeout of
@@ -214,16 +222,30 @@ public class RedissonFairLock extends RedissonLock implements RLock {
                     // threadWaitTime
                     "local lastThreadId = redis.call('lindex', KEYS[2], -1);" +
                     "local ttl;" +
-                    "if lastThreadId ~= false and lastThreadId ~= ARGV[2] and redis.call('zscore', KEYS[3], lastThreadId) ~= false then " +
+                            //线程B在等待队列，超时时间是09:30:30 线程C在09:30:00来加锁，线程C的ttl是不是要等线程B释放，所以就是09:30:30 - 09:30:00 = 30s
+                    "if lastThreadId ~= false and lastThreadId ~= ARGV[2] then " +
                         "ttl = tonumber(redis.call('zscore', KEYS[3], lastThreadId)) - tonumber(ARGV[4]);" +
                     "else " +
+                            //持有的线程是线程A,它的pexpire是09:30:20 ，那么线程B在09:30:10来加锁，09:30:20 - 09:30:10 = 10s
                         "ttl = redis.call('pttl', KEYS[1]);" +
                     "end;" +
+                            //计算一个timeout = ttl + 300000ms + 当前时间
                     "local timeout = ttl + tonumber(ARGV[3]) + tonumber(ARGV[4]);" +
                     "if redis.call('zadd', KEYS[3], timeout, ARGV[2]) == 1 then " +
                         "redis.call('rpush', KEYS[2], ARGV[2]);" +
                     "end;" +
                     "return ttl;",
+                    //线程A获取到锁，释放锁是11:01:30。5min 11:06:31
+                    // 现在11:01:10 是线程B来获取锁,那线程B的等待时间就是11:01:10 + 20s + 300s
+                    // 现在11:01:20 那线程C来获取锁，那线程C的等待时间就是(11:01:10 + 20s + 300s + 300s)
+                    // 11:01:30。线程A已经释放锁，线程B来获取锁了，那么线程B是list的第一个，lpop。重新计算后续线程的等待时间
+                    //    线程C的等待时间就 = (11:01:10 + 20s + 300s + 300s - 300s)
+                    // 11：02：00 线程A才释放锁，线程B这时候才获取到锁，lpop
+                    //    线程C的等待时间就 = (11:01:10 + 20s + 300s + 300s - 300s) 线程C只需要等待 11：02：00 + 270s
+                    // KEYS[1] = 锁名称 KEYS[2] = redisson_lock_queue_锁名称 KEYS[3] = redisson_lock_timeout_锁名称
+                    // redisson_lock_queue_锁名称：是一个list,里面存储的是第一次没有获取到锁的线程，会按照锁的获取顺序一个个的rpush到list里面
+                    // redisson_lock_timeout_锁名称：是一个zset，里面存储的是等待锁线程的超时时间，记录每一个线程到什么时间没获取到锁就超时了。分数score就是超时时间
+                    // ARGV[1] = 锁过期时间 ARGV[2] = 服务id + 线程id ARGV[3] = 等待时间300000ms ARGV[4]=当前时间
                     Arrays.asList(getRawName(), threadsQueueName, timeoutSetName),
                     unit.toMillis(leaseTime), getLockName(threadId), wait, currentTime);
         }
@@ -232,21 +254,16 @@ public class RedissonFairLock extends RedissonLock implements RLock {
     }
 
     @Override
-    protected RFuture<Boolean> unlockInnerAsync(long threadId, String requestId, int timeout) {
-        return evalWriteSyncedNoRetryAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
-          "local val = redis.call('get', KEYS[5]); " +
-                "if val ~= false then " +
-                    "return tonumber(val);" +
-                "end; " +
-
+    protected RFuture<Boolean> unlockInnerAsync(long threadId) {
+        return evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
                 // remove stale threads
                 "while true do "
                 + "local firstThreadId2 = redis.call('lindex', KEYS[2], 0);"
                 + "if firstThreadId2 == false then "
                     + "break;"
                 + "end; "
-                + "local timeout = redis.call('zscore', KEYS[3], firstThreadId2);"
-                + "if timeout ~= false and tonumber(timeout) <= tonumber(ARGV[4]) then "
+                + "local timeout = tonumber(redis.call('zscore', KEYS[3], firstThreadId2));"
+                + "if timeout <= tonumber(ARGV[4]) then "
                     + "redis.call('zrem', KEYS[3], firstThreadId2); "
                     + "redis.call('lpop', KEYS[2]); "
                 + "else "
@@ -254,34 +271,37 @@ public class RedissonFairLock extends RedissonLock implements RLock {
                 + "end; "
               + "end;"
                 
-              + "if (redis.call('exists', KEYS[1]) == 0) then " + 
+              + "if (redis.call('exists', KEYS[1]) == 0) then " +
+                        //当前锁不存在，获取等待队列的第一个线程
                     "local nextThreadId = redis.call('lindex', KEYS[2], 0); " + 
                     "if nextThreadId ~= false then " +
+                        //不为null，发布消息。
                         "redis.call(ARGV[5], KEYS[4] .. ':' .. nextThreadId, ARGV[1]); " +
                     "end; " +
-                    "redis.call('set', KEYS[5], 1, 'px', ARGV[6]); " +
                     "return 1; " +
                 "end;" +
+                        //当前持有锁是否是本线程，不是直接返回
                 "if (redis.call('hexists', KEYS[1], ARGV[3]) == 0) then " +
                     "return nil;" +
                 "end; " +
                 "local counter = redis.call('hincrby', KEYS[1], ARGV[3], -1); " +
+                        //可重入次数-1
                 "if (counter > 0) then " +
+                        //如果可重入次数-1后大于0，那么就延长超时时间
                     "redis.call('pexpire', KEYS[1], ARGV[2]); " +
-                    "redis.call('set', KEYS[5], 0, 'px', ARGV[6]); " +
                     "return 0; " +
                 "end; " +
-                    
+
+                        //否则，删除锁
                 "redis.call('del', KEYS[1]); " +
-                "redis.call('set', KEYS[5], 1, 'px', ARGV[6]); " +
                 "local nextThreadId = redis.call('lindex', KEYS[2], 0); " + 
                 "if nextThreadId ~= false then " +
                     "redis.call(ARGV[5], KEYS[4] .. ':' .. nextThreadId, ARGV[1]); " +
                 "end; " +
                 "return 1; ",
-                Arrays.asList(getRawName(), threadsQueueName, timeoutSetName, getChannelName(), getUnlockLatchName(requestId)),
+                Arrays.asList(getRawName(), threadsQueueName, timeoutSetName, getChannelName()),
                     LockPubSub.UNLOCK_MESSAGE, internalLockLeaseTime, getLockName(threadId),
-                    System.currentTimeMillis(), getSubscribeService().getPublishCommand(), timeout);
+                    System.currentTimeMillis(), getSubscribeService().getPublishCommand());
     }
 
     @Override
@@ -318,7 +338,7 @@ public class RedissonFairLock extends RedissonLock implements RLock {
     
     @Override
     public RFuture<Boolean> forceUnlockAsync() {
-        cancelExpirationRenewal(null, null);
+        cancelExpirationRenewal(null);
         return commandExecutor.syncedEvalWithRetry(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
                 // remove stale threads
                 "while true do "
@@ -326,8 +346,8 @@ public class RedissonFairLock extends RedissonLock implements RLock {
                 + "if firstThreadId2 == false then "
                     + "break;"
                 + "end; "
-                + "local timeout = redis.call('zscore', KEYS[3], firstThreadId2);"
-                + "if timeout ~= false and tonumber(timeout) <= tonumber(ARGV[2]) then "
+                + "local timeout = tonumber(redis.call('zscore', KEYS[3], firstThreadId2));"
+                + "if timeout <= tonumber(ARGV[2]) then "
                     + "redis.call('zrem', KEYS[3], firstThreadId2); "
                     + "redis.call('lpop', KEYS[2]); "
                 + "else "

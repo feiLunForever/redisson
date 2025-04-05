@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RPriorityQueue;
 
-public class RedissonPriorityQueueTest extends RedisDockerTest {
+public class RedissonPriorityQueueTest extends BaseTest {
 
     public static class Entry implements Comparable<Entry>, Serializable {
 

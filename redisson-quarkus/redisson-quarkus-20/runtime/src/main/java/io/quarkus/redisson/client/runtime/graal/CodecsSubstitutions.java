@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,21 +17,18 @@ package io.quarkus.redisson.client.runtime.graal;
 
 import com.oracle.svm.core.annotate.Substitute;
 import com.oracle.svm.core.annotate.TargetClass;
-import io.netty.channel.EventLoopGroup;
-import org.redisson.config.Config;
 
-@TargetClass(className = "org.redisson.connection.ServiceManager")
-final class ServiceManagerSubstitute {
+@TargetClass(className = "org.redisson.codec.JsonJacksonCodec")
+final class JsonJacksonCodecSubstitute {
 
     @Substitute
-    private static EventLoopGroup createIOUringGroup(Config cfg) {
-        throw new IllegalArgumentException("IOUring isn't compatible with native mode");
+    private void warmup() {
     }
 
 }
 
-@TargetClass(className = "org.redisson.codec.JsonJacksonCodec")
-final class JsonJacksonCodecSubstitute {
+@TargetClass(className = "org.redisson.codec.MarshallingCodec")
+final class MarshallingCodecSubstitute {
 
     @Substitute
     private void warmup() {

@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,14 +38,10 @@ public class LocalCacheView<K, V> {
 
     private final RedissonObject object;
     private final ConcurrentMap<CacheKey, CacheValue> cache;
-    private final ConcurrentMap<Object, CacheKey> cacheKeyMap;
-    private final boolean useObjectAsCacheKey;
-
+    
     public LocalCacheView(LocalCachedMapOptions<?, ?> options, RedissonObject object) {
         this.cache = createCache(options);
         this.object = object;
-        this.cacheKeyMap = createCache(options);
-        this.useObjectAsCacheKey = options.isUseObjectAsCacheKey();
     }
 
     public Set<K> cachedKeySet() {
@@ -72,9 +68,6 @@ public class LocalCacheView<K, V> {
                 
                 @Override
                 public void remove() {
-                    if (useObjectAsCacheKey) {
-                        cacheKeyMap.remove(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
-                    }
                     iter.remove();
                 }
             };
@@ -89,9 +82,6 @@ public class LocalCacheView<K, V> {
         @Override
         public boolean remove(Object o) {
             CacheKey cacheKey = toCacheKey(o);
-            if (useObjectAsCacheKey) {
-                cacheKeyMap.remove(o);
-            }
             return cache.remove(cacheKey) != null;
         }
 
@@ -102,9 +92,6 @@ public class LocalCacheView<K, V> {
 
         @Override
         public void clear() {
-            if (useObjectAsCacheKey) {
-                cacheKeyMap.clear();
-            }
             cache.clear();
         }
 
@@ -134,9 +121,6 @@ public class LocalCacheView<K, V> {
                 
                 @Override
                 public void remove() {
-                    if (useObjectAsCacheKey) {
-                        cacheKeyMap.remove(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
-                    }
                     iter.remove();
                 }
             };
@@ -156,9 +140,6 @@ public class LocalCacheView<K, V> {
         @Override
         public void clear() {
             cache.clear();
-            if (useObjectAsCacheKey) {
-                cacheKeyMap.clear();
-            }
         }
 
     }
@@ -183,15 +164,11 @@ public class LocalCacheView<K, V> {
                 @Override
                 public Map.Entry<K, V> next() {
                     CacheValue e = iter.next();
-                    V val = toValue(e);
-                    return new AbstractMap.SimpleEntry<K, V>((K) e.getKey(), val);
+                    return new AbstractMap.SimpleEntry<K, V>((K) e.getKey(), (V) e.getValue());
                 }
                 
                 @Override
                 public void remove() {
-                    if (useObjectAsCacheKey) {
-                        cacheKeyMap.remove(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
-                    }
                     iter.remove();
                 }
             };
@@ -212,9 +189,6 @@ public class LocalCacheView<K, V> {
             if (o instanceof Map.Entry) {
                 Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
                 CacheKey cacheKey = toCacheKey(e.getKey());
-                if (useObjectAsCacheKey) {
-                    cacheKeyMap.remove(e.getKey());
-                }
                 return cache.remove(cacheKey) != null;
             }
             return false;
@@ -266,30 +240,13 @@ public class LocalCacheView<K, V> {
         }
 
     }
-
-    protected V toValue(CacheValue cv) {
-        return (V) cv.getValue();
-    }
-
+    
     public CacheKey toCacheKey(Object key) {
-        CacheKey cacheKey;
-        if (useObjectAsCacheKey) {
-            cacheKey = cacheKeyMap.get(key);
-            if (cacheKey != null) {
-                return cacheKey;
-            }
-        }
         ByteBuf encoded = object.encodeMapKey(key);
         try {
             return toCacheKey(encoded);
         } finally {
             encoded.release();
-        }
-    }
-
-    public void putCacheKey(Object key, CacheKey cacheKey) {
-        if (useObjectAsCacheKey) {
-            cacheKeyMap.put(key, cacheKey);
         }
     }
 
@@ -301,13 +258,9 @@ public class LocalCacheView<K, V> {
         return (ConcurrentMap<K1, V1>) cache;
     }
 
-    public ConcurrentMap<Object, CacheKey> getCacheKeyMap() {
-        return cacheKeyMap;
-    }
-
-    public <K1, V1> ConcurrentMap<K1, V1> createCache(LocalCachedMapOptions<?, ?> options) {
+    public ConcurrentMap<CacheKey, CacheValue> createCache(LocalCachedMapOptions<?, ?> options) {
         if (options.getCacheSize() == -1) {
-            return new NoOpCacheMap<>();
+            return new NoOpCacheMap<CacheKey, CacheValue>();
         }
 
         if (options.getCacheProvider() == LocalCachedMapOptions.CacheProvider.CAFFEINE) {
@@ -327,7 +280,7 @@ public class LocalCacheView<K, V> {
             if (options.getEvictionPolicy() == LocalCachedMapOptions.EvictionPolicy.WEAK) {
                 caffeineBuilder.weakValues();
             }
-            return caffeineBuilder.<K1, V1>build().asMap();
+            return caffeineBuilder.<CacheKey, CacheValue>build().asMap();
         }
 
         if (options.getEvictionPolicy() == LocalCachedMapOptions.EvictionPolicy.NONE) {

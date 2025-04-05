@@ -1,9 +1,17 @@
 package org.redisson.executor;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.IOException;
+import java.io.Serializable;
+import java.util.Collections;
+import java.util.concurrent.Callable;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.redisson.RedisDockerTest;
+import org.redisson.BaseTest;
+import org.redisson.RedisRunner.FailedToStartRedisException;
 import org.redisson.RedissonNode;
 import org.redisson.api.RExecutorFuture;
 import org.redisson.api.RedissonClient;
@@ -18,13 +26,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.stereotype.Service;
 
-import java.io.Serializable;
-import java.util.Collections;
-import java.util.concurrent.Callable;
-
-import static org.assertj.core.api.Assertions.assertThat;
-
-public class RedissonExecutorServiceSpringTest extends RedisDockerTest {
+public class RedissonExecutorServiceSpringTest extends BaseTest {
 
     public static class SampleRunnable implements Runnable, Serializable {
 
@@ -77,7 +79,7 @@ public class RedissonExecutorServiceSpringTest extends RedisDockerTest {
 
         @Bean(destroyMethod = "shutdown")
         RedissonNode redissonNode(BeanFactory beanFactory) {
-            Config config = createConfig();
+            Config config = BaseTest.createConfig();
             RedissonNodeConfig nodeConfig = new RedissonNodeConfig(config);
             nodeConfig.setExecutorServiceWorkers(Collections.singletonMap(EXECUTOR_NAME, 1));
             nodeConfig.setBeanFactory(beanFactory);
@@ -91,7 +93,7 @@ public class RedissonExecutorServiceSpringTest extends RedisDockerTest {
     private static AnnotationConfigApplicationContext context;
     
     @BeforeAll
-    public static void beforeTest() {
+    public static void beforeTest() throws FailedToStartRedisException, IOException, InterruptedException {
         context = new AnnotationConfigApplicationContext(Application.class);
     }
 

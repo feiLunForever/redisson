@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,39 +15,26 @@
  */
 package org.redisson.liveobject.misc;
 
-import jodd.bean.BeanUtil;
+import jodd.bean.BeanCopy;
 import jodd.bean.BeanUtilBean;
-import jodd.bean.BeanVisitor;
-
-import java.util.List;
 
 /**
  * 
  * @author Nikita Koksharov
  *
  */
-public final class AdvBeanCopy {
-
-    private final Object source;
-    private final Object destination;
+public class AdvBeanCopy extends BeanCopy {
 
     public AdvBeanCopy(Object source, Object destination) {
-        this.source = source;
-        this.destination = destination;
+        super(source, destination);
     }
     
-    public void copy(List<String> excludedFields) {
-        BeanUtil beanUtil = new BeanUtilBean();
-
-        new BeanVisitor(source)
-                .ignoreNulls(true)
-                .visit((name, value) -> {
-                    if (excludedFields.contains(name)) {
-                        return;
-                    }
-
-                    beanUtil.setProperty(destination, name, value);
-                });
+    @Override
+    public void copy() {
+        beanUtil = new BeanUtilBean()
+                .declared(declared)
+                .forced(forced);
+        visit();
     }
 
 }

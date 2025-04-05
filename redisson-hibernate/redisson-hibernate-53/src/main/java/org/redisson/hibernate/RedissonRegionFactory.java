@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ public class RedissonRegionFactory extends RegionFactoryTemplate {
 
     public static final String FALLBACK = CONFIG_PREFIX + "fallback";
 
-    RedissonClient redisson;
+    private RedissonClient redisson;
     private CacheKeysFactory cacheKeysFactory;
     protected boolean fallback;
 
@@ -176,7 +176,7 @@ public class RedissonRegionFactory extends RegionFactoryTemplate {
                             + "local nextValue = math.max(tonumber(ARGV[1]), tonumber(currentTime) + 1); "
                             + "redis.call('set', KEYS[1], nextValue); "
                             + "return nextValue;",
-                    RScript.ReturnType.INTEGER, Arrays.<Object>asList(qualifyName("redisson-hibernate-timestamp")), time);
+                    RScript.ReturnType.INTEGER, Arrays.<Object>asList("redisson-hibernate-timestamp"), time);
         } catch (Exception e) {
             if (fallback) {
                 return super.nextTimestamp();

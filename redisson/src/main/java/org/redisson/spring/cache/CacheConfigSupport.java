@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,16 @@
  */
 package org.redisson.spring.cache;
 
-import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
-import org.redisson.api.map.event.MapEntryListener;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.net.URL;
 import java.util.Map;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 /**
  * 
@@ -37,20 +33,9 @@ import java.util.Map;
  */
 public class CacheConfigSupport {
 
-    ObjectMapper jsonMapper = createMapper(null);
-    ObjectMapper yamlMapper = createMapper(new YAMLFactory());
-    
-    @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, property = "class")
-    public static class ClassMixIn {
-    }
-    
-    private ObjectMapper createMapper(JsonFactory mapping) {
-        ObjectMapper mapper = new ObjectMapper(mapping);
-        mapper.configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false);
-        mapper.addMixIn(MapEntryListener.class, ClassMixIn.class);
-        return mapper;
-    }
-    
+    ObjectMapper jsonMapper = new ObjectMapper();
+    ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+
     public Map<String, CacheConfig> fromJSON(String content) throws IOException {
         return jsonMapper.readValue(content, new TypeReference<Map<String, CacheConfig>>() {});
     }

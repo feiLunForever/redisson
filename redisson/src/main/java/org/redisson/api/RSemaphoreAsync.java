@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.redisson.api;
 
-import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -83,43 +82,25 @@ public interface RSemaphoreAsync extends RExpirableAsync {
     /**
      * Tries to set number of permits.
      *
-     * @param permits number of permits
+     * @param permits - number of permits
      * @return <code>true</code> if permits has been set successfully, otherwise <code>false</code>.  
      */
     RFuture<Boolean> trySetPermitsAsync(int permits);
-
-    /**
-     * Tries to set number of permits with defined time to live.
-     *
-     * @param timeToLive time to live
-     * @param permits number of permits
-     * @return <code>true</code> if permits has been set successfully, otherwise <code>false</code>.
-     */
-    RFuture<Boolean> trySetPermitsAsync(int permits, Duration timeToLive);
-
-    /**
-     * Use {@link #tryAcquireAsync(Duration)} instead
-     *
-     * @param waitTime the maximum time to wait
-     * @param unit the time unit
-     * @return <code>true</code> if a permit was acquired and <code>false</code>
-     *         otherwise
-     */
-    @Deprecated
-    RFuture<Boolean> tryAcquireAsync(long waitTime, TimeUnit unit);
 
     /**
      * Tries to acquire currently available permit.
      * Waits up to defined <code>waitTime</code> if necessary until a permit became available.
      *
      * @param waitTime the maximum time to wait
+     * @param unit the time unit
      * @return <code>true</code> if a permit was acquired and <code>false</code>
      *         otherwise
      */
-    RFuture<Boolean> tryAcquireAsync(Duration waitTime);
-
+    RFuture<Boolean> tryAcquireAsync(long waitTime, TimeUnit unit);
+    
     /**
-     * Use {@link #tryAcquireAsync(int, Duration)} instead
+     * Tries to acquire defined amount of currently available <code>permits</code>.
+     * Waits up to defined <code>waitTime</code> if necessary until all permits became available.
      *
      * @param permits amount of permits
      * @param waitTime the maximum time to wait
@@ -127,19 +108,7 @@ public interface RSemaphoreAsync extends RExpirableAsync {
      * @return <code>true</code> if permits were acquired and <code>false</code>
      *         otherwise
      */
-    @Deprecated
     RFuture<Boolean> tryAcquireAsync(int permits, long waitTime, TimeUnit unit);
-
-    /**
-     * Tries to acquire defined amount of currently available <code>permits</code>.
-     * Waits up to defined <code>waitTime</code> if necessary until all permits became available.
-     *
-     * @param permits amount of permits
-     * @param waitTime the maximum time to wait
-     * @return <code>true</code> if permits were acquired and <code>false</code>
-     *         otherwise
-     */
-    RFuture<Boolean> tryAcquireAsync(int permits, Duration waitTime);
 
     /**
      * Increases or decreases the number of available permits by defined value.

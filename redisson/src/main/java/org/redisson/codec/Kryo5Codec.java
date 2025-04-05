@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,15 +32,11 @@ import org.redisson.client.codec.BaseCodec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.Encoder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
-import java.net.InetAddress;
-import java.net.SocketAddress;
 import java.net.URI;
-import java.util.*;
+import java.util.UUID;
 import java.util.regex.Pattern;
 
 import static com.esotericsoftware.kryo.util.Util.className;
@@ -55,10 +51,7 @@ import static com.esotericsoftware.kryo.util.Util.className;
  */
 public class Kryo5Codec extends BaseCodec {
 
-    private static final Logger logger = LoggerFactory.getLogger(Kryo5Codec.class);
-    private static final List<String> MISSED_COLLECTION_CLASSES = Arrays.asList("Unmodifiable", "Synchronized", "Checked");
-
-    private static final class SimpleInstantiatorStrategy implements org.objenesis.strategy.InstantiatorStrategy {
+    private static class SimpleInstantiatorStrategy implements org.objenesis.strategy.InstantiatorStrategy {
 
         private final StdInstantiatorStrategy ss = new StdInstantiatorStrategy();
 
@@ -93,37 +86,21 @@ public class Kryo5Codec extends BaseCodec {
     private final Pool<Kryo> kryoPool;
     private final Pool<Input> inputPool;
     private final Pool<Output> outputPool;
-    private final Set<String> allowedClasses;
-    private final boolean useReferences;
 
     public Kryo5Codec() {
-        this(null, Collections.emptySet(), false);
-    }
-
-    public Kryo5Codec(Set<String> allowedClasses, boolean useReferences) {
-        this(null, allowedClasses, useReferences);
+        this(null);
     }
 
     public Kryo5Codec(ClassLoader classLoader, Kryo5Codec codec) {
-        this(classLoader, codec.allowedClasses, codec.useReferences);
+        this(classLoader);
     }
 
     public Kryo5Codec(ClassLoader classLoader) {
-        this(classLoader, Collections.emptySet(), false);
-    }
-
-    public Kryo5Codec(ClassLoader classLoader, Set<String> allowedClasses, boolean useReferences) {
-        this.allowedClasses = allowedClasses;
-        this.useReferences = useReferences;
 
         this.kryoPool = new Pool<Kryo>(true, false, 1024) {
             @Override
             protected Kryo create() {
-                try {
-                    return createKryo(classLoader, useReferences);
-                } catch (ClassNotFoundException e) {
-                    throw new IllegalArgumentException(e);
-                }
+                return createKryo(classLoader);
             }
         };
 
@@ -142,34 +119,18 @@ public class Kryo5Codec extends BaseCodec {
         };
     }
 
-    protected Kryo createKryo(ClassLoader classLoader, boolean useReferences) throws ClassNotFoundException {
+    protected Kryo createKryo(ClassLoader classLoader) {
         Kryo kryo = new Kryo();
         if (classLoader != null) {
             kryo.setClassLoader(classLoader);
         }
         kryo.setInstantiatorStrategy(new SimpleInstantiatorStrategy());
-        kryo.setRegistrationRequired(!allowedClasses.isEmpty());
-        kryo.setReferences(useReferences);
-
-        for (String allowedClass : allowedClasses) {
-            kryo.register(Class.forName(allowedClass));
-        }
-
-        try {
-            Class<?>[] f = Collections.class.getDeclaredClasses();
-            Arrays.stream(f)
-                    .filter(cls -> MISSED_COLLECTION_CLASSES.stream().anyMatch(s -> cls.getName().contains(s)))
-                    .forEach(cls -> kryo.addDefaultSerializer(cls, new JavaSerializer()));
-        } catch (Exception e) {
-            logger.warn("Unable to register Collections serializer", e);
-        }
-        kryo.addDefaultSerializer(EnumMap.class, new JavaSerializer());
+        kryo.setRegistrationRequired(false);
+        kryo.setReferences(false);
         kryo.addDefaultSerializer(Throwable.class, new JavaSerializer());
         kryo.addDefaultSerializer(UUID.class, new DefaultSerializers.UUIDSerializer());
         kryo.addDefaultSerializer(URI.class, new DefaultSerializers.URISerializer());
         kryo.addDefaultSerializer(Pattern.class, new DefaultSerializers.PatternSerializer());
-        kryo.addDefaultSerializer(SocketAddress.class, new JavaSerializer());
-        kryo.addDefaultSerializer(InetAddress.class, new JavaSerializer());
         return kryo;
     }
 

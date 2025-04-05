@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,11 +19,9 @@ import io.netty.channel.ChannelHandler.Sharable;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
 import org.redisson.api.RFuture;
-import org.redisson.client.RedisClientConfig;
-import org.redisson.client.RedisConnection;
-import org.redisson.client.RedisRetryException;
+import org.redisson.client.*;
 import org.redisson.client.codec.StringCodec;
-import org.redisson.client.protocol.QueueCommand;
+import org.redisson.client.protocol.CommandData;
 import org.redisson.client.protocol.RedisCommands;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,25 +59,20 @@ public class PingConnectionHandler extends ChannelInboundHandlerAdapter {
 
     private void sendPing(ChannelHandlerContext ctx) {
         RedisConnection connection = RedisConnection.getFrom(ctx.channel());
-        if (isClosed(ctx, connection)) {
-            return;
-        }
-
         RFuture<String> future;
-        QueueCommand currentCommand = connection.getCurrentCommandData();
+        CommandData<?, ?> currentCommand = connection.getCurrentCommand();
         if (connection.getUsage() == 0 && (currentCommand == null || !currentCommand.isBlockingCommand())) {
-            int timeout = Math.max(config.getCommandTimeout(), config.getPingConnectionInterval() / 2);
-            future = connection.async(timeout, StringCodec.INSTANCE, RedisCommands.PING);
+            future = connection.async(StringCodec.INSTANCE, RedisCommands.PING);
         } else {
             future = null;
         }
 
         config.getTimer().newTimeout(timeout -> {
-            if (isClosed(ctx, connection)) {
+            if (connection.isClosed() || ctx.isRemoved()) {
                 return;
             }
 
-            QueueCommand cd = connection.getCurrentCommandData();
+            CommandData<?, ?> cd = connection.getCurrentCommand();
             if (cd != null && cd.isBlockingCommand()) {
                 sendPing(ctx);
                 return;
@@ -90,29 +83,27 @@ public class PingConnectionHandler extends ChannelInboundHandlerAdapter {
                         && (future.cancel(false) || cause(future) != null)) {
 
                 Throwable cause = cause(future);
-                if (!(cause instanceof RedisRetryException)) {
+
+                if (!(cause instanceof RedisLoadingException
+                        || cause instanceof RedisTryAgainException
+                            || cause instanceof RedisClusterDownException
+                                || cause instanceof RedisBusyException)) {
                     if (!future.isCancelled()) {
                         log.error("Unable to send PING command over channel: {}", ctx.channel(), cause);
                     }
 
                     log.debug("channel: {} closed due to PING response timeout set in {} ms", ctx.channel(), config.getPingConnectionInterval());
                     ctx.channel().close();
+                    connection.getRedisClient().trySetupFirstFail();
                 } else {
+                    connection.getRedisClient().resetFirstFail();
                     sendPing(ctx);
                 }
-                connection.getRedisClient().getConfig().getFailedNodeDetector().onPingFailed(cause);
             } else {
-                connection.getRedisClient().getConfig().getFailedNodeDetector().onPingSuccessful();
+                connection.getRedisClient().resetFirstFail();
                 sendPing(ctx);
             }
         }, config.getPingConnectionInterval(), TimeUnit.MILLISECONDS);
-    }
-
-    private static boolean isClosed(ChannelHandlerContext ctx, RedisConnection connection) {
-        return connection.isClosed()
-                    || !ctx.channel().equals(connection.getChannel())
-                            || ctx.isRemoved()
-                                || connection.getRedisClient().isShutdown();
     }
 
     protected Throwable cause(RFuture<?> future) {

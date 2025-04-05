@@ -11,7 +11,6 @@ import org.redisson.config.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -19,8 +18,6 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Lock;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -28,34 +25,6 @@ import static org.awaitility.Awaitility.await;
 public class RedissonFairLockTest extends BaseConcurrentTest {
 
     private final Logger log = LoggerFactory.getLogger(RedissonFairLockTest.class);
-
-    @Test
-    public void testLeaseTimeout() throws InterruptedException {
-        ExecutorService ee = Executors.newFixedThreadPool(8);
-        List<Integer> list = new ArrayList<>();
-        for (int index = 0; index < 8; index++) {
-            Thread.sleep(100);
-            int i = index;
-            ee.submit(() -> {
-                RLock fairLock = redisson.getFairLock("lock");
-                try {
-                    boolean acquired = fairLock.tryLock(10, 1, TimeUnit.SECONDS);
-                    if (acquired) {
-                        list.add(i);
-                    }
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-
-            });
-        }
-
-        ee.shutdown();
-        assertThat(ee.awaitTermination(11, TimeUnit.SECONDS)).isTrue();
-
-        List<Integer> s = IntStream.range(0, 8).boxed().collect(Collectors.toList());
-        assertThat(list).isEqualTo(s);
-    }
 
     @Test
     public void testMultipleLocks() throws InterruptedException {
@@ -284,7 +253,7 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
         long leaseTime = 30_000;
 
         // we're testing interaction of various internal methods, so create a Redisson instance for protected access
-        RedissonClient redisson = Redisson.create(createConfig());
+        Redisson redisson = new Redisson(createConfig());
 
         RedissonFairLock lock = (RedissonFairLock) redisson.getFairLock("testAcquireFailedTimeoutDrift_Descrete");
 
@@ -332,12 +301,12 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
         // try the third, and check the TTL
         thirdTTL = lock.tryLockInnerAsync(5000, leaseTime, TimeUnit.MILLISECONDS, threadThirdWaiter, RedisCommands.EVAL_LONG).toCompletableFuture().join();;
         Assertions.assertNotNull(thirdTTL);
-        Assertions.assertTrue(thirdTTL >= 29900 && thirdTTL <= 30100, "Expected 35000 +/- 300 but was " + thirdTTL);
+        Assertions.assertTrue(thirdTTL >= 34700 && thirdTTL <= 35300, "Expected 35000 +/- 300 but was " + thirdTTL);
 
         // try the fourth, and check the TTL
         fourthTTL = lock.tryLockInnerAsync(5000, leaseTime, TimeUnit.MILLISECONDS, threadFourthWaiter, RedisCommands.EVAL_LONG).toCompletableFuture().join();;
         Assertions.assertNotNull(fourthTTL);
-        Assertions.assertTrue(fourthTTL >= 29900 && fourthTTL <= 30100, "Expected 40000 +/- 100 but was " + fourthTTL);
+        Assertions.assertTrue(fourthTTL >= 39900 && fourthTTL <= 40100, "Expected 40000 +/- 100 but was " + fourthTTL);
 
         // unlock the original lock holder
         Boolean unlocked = lock.unlockInnerAsync(threadInit).toCompletableFuture().join();;
@@ -355,7 +324,7 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
 
         fourthTTL = lock.tryLockInnerAsync(5000, leaseTime, TimeUnit.MILLISECONDS, threadFourthWaiter, RedisCommands.EVAL_LONG).toCompletableFuture().join();;
         Assertions.assertNotNull(fourthTTL);
-        Assertions.assertTrue(fourthTTL >= 29700 && fourthTTL <= 30300, "Expected 35000 +/- 100 but was " + fourthTTL);
+        Assertions.assertTrue(fourthTTL >= 34900 && fourthTTL <= 35100, "Expected 35000 +/- 100 but was " + fourthTTL);
     }
 
     @Test
@@ -363,14 +332,12 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
         long leaseTime = 500;
 
         // we're testing interaction of various internal methods, so create a Redisson instance for protected access
-        Config config = createConfig()
-                .setFairLockWaitTimeout(100);
-
-        RedissonClient redisson = Redisson.create(config);
+        Redisson redisson = new Redisson(createConfig());
 
         RedissonFairLock lock = new RedissonFairLock(
-                ((Redisson) redisson).getCommandExecutor(),
-                "testLockAcquiredTimeoutDrift_Descrete");
+            redisson.getCommandExecutor(),
+            "testLockAcquiredTimeoutDrift_Descrete",
+            100);
 
         // clear out any prior state
         lock.delete();
@@ -423,10 +390,10 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
         long leaseTime = 300_000;
 
         // we're testing interaction of various internal methods, so create a Redisson instance for protected access
-        RedissonClient redisson = Redisson.create(createConfig());
+        Redisson redisson = new Redisson(createConfig());
 
         RedissonFairLock lock = new RedissonFairLock(
-                ((Redisson) redisson).getCommandExecutor(),
+                redisson.getCommandExecutor(),
                 "testLockAcquiredTimeoutDrift_Descrete");
 
         // clear out any prior state
@@ -469,7 +436,8 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
 
         thirdTTL = lock.tryLockInnerAsync(5000, leaseTime, TimeUnit.MILLISECONDS, threadThirdWaiter, RedisCommands.EVAL_LONG).toCompletableFuture().join();;
         Assertions.assertNotNull(thirdTTL);
-        Assertions.assertTrue(thirdTTL < secondTTLAgain);
+        diff = thirdTTL - secondTTLAgain;
+        Assertions.assertTrue(diff > 4900 && diff < 5100, "Expected 5000 +/- 100 but was " + diff);
     }
 
     @Test
@@ -478,13 +446,12 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
         long threadWaitTime = 100;
 
         // we're testing interaction of various internal methods, so create a Redisson instance for protected access
-        Config config = createConfig()
-                .setFairLockWaitTimeout(threadWaitTime);
-        RedissonClient redisson = Redisson.create(config);
+        Redisson redisson = new Redisson(createConfig());
 
         RedissonFairLock lock = new RedissonFairLock(
-                ((Redisson) redisson).getCommandExecutor(),
-                "testAbandonedTimeoutDrift_Descrete");
+                redisson.getCommandExecutor(),
+                "testAbandonedTimeoutDrift_Descrete",
+                threadWaitTime);
 
         // clear out any prior state
         lock.delete();
@@ -964,7 +931,7 @@ public class RedissonFairLockTest extends BaseConcurrentTest {
             t1.start();
         }
 
-        await().atMost(45, TimeUnit.SECONDS).until(() -> lockedCounter.get() == totalThreads);
+        await().atMost(35, TimeUnit.SECONDS).until(() -> lockedCounter.get() == totalThreads);
     }
 
 

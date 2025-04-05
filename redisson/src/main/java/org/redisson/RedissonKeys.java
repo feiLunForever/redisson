@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,12 @@
  */
 package org.redisson;
 
-import org.redisson.api.*;
-import org.redisson.api.listener.FlushListener;
-import org.redisson.api.listener.NewObjectListener;
-import org.redisson.api.listener.SetObjectListener;
-import org.redisson.api.options.KeysScanOptions;
-import org.redisson.api.options.KeysScanParams;
+import org.redisson.api.RFuture;
+import org.redisson.api.RKeys;
+import org.redisson.api.RObject;
+import org.redisson.api.RType;
 import org.redisson.client.RedisClient;
 import org.redisson.client.RedisException;
-import org.redisson.client.codec.ByteArrayCodec;
-import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.RedisCommand;
@@ -37,15 +33,11 @@ import org.redisson.client.protocol.decoder.ListScanResultReplayDecoder;
 import org.redisson.client.protocol.decoder.ObjectListReplayDecoder;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.command.CommandBatchService;
-import org.redisson.config.Protocol;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.MasterSlaveEntry;
-import org.redisson.iterator.BaseAsyncIterator;
 import org.redisson.iterator.RedissonBaseIterator;
 import org.redisson.misc.CompletableFutureWrapper;
-import org.redisson.misc.CompositeAsyncIterator;
 import org.redisson.misc.CompositeIterable;
-import org.redisson.pubsub.PublishSubscribeService;
 import org.redisson.reactive.CommandReactiveBatchService;
 import org.redisson.rx.CommandRxBatchService;
 
@@ -53,18 +45,16 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 /**
- *
+ * 
  * @author Nikita Koksharov
  *
  */
-public final class RedissonKeys implements RKeys {
+public class RedissonKeys implements RKeys {
 
     private final CommandAsyncExecutor commandExecutor;
 
@@ -107,30 +97,27 @@ public final class RedissonKeys implements RKeys {
     }
 
     private final RedisCommand<ListScanResult<String>> scan = new RedisCommand<ListScanResult<String>>("SCAN", new ListMultiDecoder2(
-            new ListScanResultReplayDecoder() {
-                @Override
-                public ListScanResult<Object> decode(List<Object> parts, State state) {
-                    return new ListScanResult<>((String) parts.get(0), (List<Object>) (Object) unmap((List<String>) parts.get(1)));
-                }
-            }, new ObjectListReplayDecoder<String>()));
-
-    private final RedisCommand<ListScanResult<Object>> binaryScan = new RedisCommand<ListScanResult<Object>>("SCAN", new ListMultiDecoder2(
-            new ListScanResultReplayDecoder() {
-                @Override
-                public ListScanResult<Object> decode(List<Object> parts, State state) {
-                    return new ListScanResult<>((String) parts.get(0), (List<Object>) parts.get(1));
-                }
-            }, new ObjectListReplayDecoder<String>()));
+                                                                                new ListScanResultReplayDecoder() {
+                                                                                    @Override
+                                                                                    public ListScanResult<Object> decode(List<Object> parts, State state) {
+                                                                                        return new ListScanResult<>((Long) parts.get(0), (List<Object>) (Object) unmap((List<String>) parts.get(1)));
+                                                                                    }
+                                                                                }, new ObjectListReplayDecoder<String>()));
 
     @Override
     public Iterable<String> getKeysByPattern(String pattern, int count) {
-        return getKeys(KeysScanOptions.defaults().pattern(pattern).chunkSize(count));
+        return getKeysByPattern(scan, pattern, 0, count);
     }
 
-    public <T> Iterable<T> getKeysByPattern(RedisCommand<?> command, String pattern, int limit, int count, RType type) {
+    public <T> Iterable<T> getKeysByPattern(RedisCommand<?> command, String pattern, int limit, int count) {
         List<Iterable<T>> iterables = new ArrayList<>();
         for (MasterSlaveEntry entry : commandExecutor.getConnectionManager().getEntrySet()) {
-            Iterable<T> iterable = () -> createKeysIterator(StringCodec.INSTANCE, entry, command, pattern, count, type);
+            Iterable<T> iterable = new Iterable<T>() {
+                @Override
+                public Iterator<T> iterator() {
+                    return createKeysIterator(entry, command, pattern, count);
+                }
+            };
             iterables.add(iterable);
         }
         return new CompositeIterable<T>(iterables, limit);
@@ -143,40 +130,12 @@ public final class RedissonKeys implements RKeys {
 
     @Override
     public Iterable<String> getKeysWithLimit(String pattern, int limit) {
-        return getKeys(KeysScanOptions.defaults().pattern(pattern).limit(limit));
+        return getKeysByPattern(scan, pattern, limit, limit);
     }
 
     @Override
     public Iterable<String> getKeys() {
-        return getKeys(KeysScanOptions.defaults());
-    }
-
-    @Override
-    public AsyncIterator<String> getKeysAsync() {
-        return getKeysAsync(KeysScanOptions.defaults());
-    }
-
-    @Override
-    public Iterable<String> getKeys(KeysScanOptions options) {
-        KeysScanParams params = (KeysScanParams) options;
-        return getKeysByPattern(scan, params.getPattern(), params.getLimit(), params.getChunkSize(), params.getType());
-    }
-
-    @Override
-    public AsyncIterator<String> getKeysAsync(KeysScanOptions options) {
-        KeysScanParams params = (KeysScanParams) options;
-        List<AsyncIterator<String>> asyncIterators = new ArrayList<>();
-        for (MasterSlaveEntry entry : commandExecutor.getConnectionManager().getEntrySet()) {
-            AsyncIterator<String> asyncIterator = new BaseAsyncIterator<String, Object>() {
-                @Override
-                protected RFuture<ScanResult<Object>> iterator(RedisClient client, String nextItPos) {
-                    return scanIteratorAsync(StringCodec.INSTANCE, client, entry, scan, nextItPos, params.getPattern(), params.getChunkSize(), params.getType());
-                }
-            };
-            asyncIterators.add(asyncIterator);
-
-        }
-        return new CompositeAsyncIterator<>(asyncIterators, params.getLimit());
+        return getKeysByPattern(null);
     }
 
     @Override
@@ -184,40 +143,30 @@ public final class RedissonKeys implements RKeys {
         return getKeysByPattern(null, count);
     }
 
-    private RFuture<ScanResult<Object>> scanIteratorAsync(Codec codec, RedisClient client, MasterSlaveEntry entry, RedisCommand<?> command,
-                                                          String startPos, String pattern, int count, RType type) {
-        List<Object> args = new ArrayList<>();
-        args.add(startPos);
-        if (pattern != null) {
-            pattern = map(pattern);
-            args.add("MATCH");
-            args.add(pattern);
-        }
-        if (count > 0) {
-            args.add("COUNT");
-            args.add(count);
-        }
-        if (type != null) {
-            args.add("TYPE");
-            args.add(type.getValue());
+    private RFuture<ScanResult<Object>> scanIteratorAsync(RedisClient client, MasterSlaveEntry entry, RedisCommand<?> command, long startPos,
+                                                             String pattern, int count) {
+        if (pattern == null) {
+            return commandExecutor.readAsync(client, entry, StringCodec.INSTANCE, command, startPos, "COUNT",
+                    count);
         }
 
-        return commandExecutor.readAsync(client, entry, codec, command, args.toArray());
+        pattern = map(pattern);
+        return commandExecutor.readAsync(client, entry, StringCodec.INSTANCE, command, startPos, "MATCH",
+                pattern, "COUNT", count);
     }
 
-    public RFuture<ScanResult<Object>> scanIteratorAsync(RedisClient client, MasterSlaveEntry entry,
-                                                         String startPos, String pattern, int count, RType type) {
-        return scanIteratorAsync(StringCodec.INSTANCE, client, entry, scan, startPos, pattern, count, type);
+    public RFuture<ScanResult<Object>> scanIteratorAsync(RedisClient client, MasterSlaveEntry entry, long startPos,
+            String pattern, int count) {
+        return scanIteratorAsync(client, entry, scan, startPos, pattern, count);
     }
 
-    private <T> Iterator<T> createKeysIterator(Codec codec, MasterSlaveEntry entry, RedisCommand<?> command,
-                                               String pattern, int count, RType type) {
+    private <T> Iterator<T> createKeysIterator(MasterSlaveEntry entry, RedisCommand<?> command, String pattern, int count) {
         return new RedissonBaseIterator<T>() {
 
             @Override
-            protected ScanResult<Object> iterator(RedisClient client, String nextIterPos) {
+            protected ScanResult<Object> iterator(RedisClient client, long nextIterPos) {
                 return commandExecutor
-                        .get(scanIteratorAsync(codec, client, entry, command, nextIterPos, pattern, count, type));
+                        .get(RedissonKeys.this.scanIteratorAsync(client, entry, command, nextIterPos, pattern, count));
             }
 
             @Override
@@ -283,38 +232,22 @@ public final class RedissonKeys implements RKeys {
 
     @Override
     public RFuture<Long> deleteByPatternAsync(String pattern) {
-        return eraseByPatternAsync(RedisCommands.DEL, pattern);
-    }
-
-    @Override
-    public long unlinkByPattern(String pattern) {
-        return commandExecutor.get(unlinkByPatternAsync(pattern));
-    }
-
-    @Override
-    public RFuture<Long> unlinkByPatternAsync(String pattern) {
-        return eraseByPatternAsync(RedisCommands.UNLINK, pattern);
-    }
-
-    private RFuture<Long> eraseByPatternAsync(RedisStrictCommand command, String pattern) {
-        Function<Object[], Long> delegate = keys -> (Long) commandExecutor.get(commandExecutor.writeBatchedAsync(null, command, new LongSlotCallback(), keys));
-
         if (commandExecutor instanceof CommandBatchService
                 || commandExecutor instanceof CommandReactiveBatchService
-                || commandExecutor instanceof CommandRxBatchService) {
-            if (commandExecutor.getServiceManager().getCfg().isClusterConfig()) {
+                    || commandExecutor instanceof CommandRxBatchService) {
+            if (getConnectionManager().isClusterMode()) {
                 throw new IllegalStateException("This method doesn't work in batch for Redis cluster mode. For Redis cluster execute it as non-batch method");
             }
 
-            return commandExecutor.evalWriteAsync((String) null, null, RedisCommands.EVAL_LONG,
-                    "local keys = redis.call('keys', ARGV[1]) "
-                            + "local n = 0 "
-                            + "for i=1, #keys,5000 do "
-                            + "n = n + redis.call(ARGV[2], unpack(keys, i, math.min(i+4999, table.getn(keys)))) "
-                            + "end "
-                            + "return n;", Collections.emptyList(), pattern, command.getName());
+            return commandExecutor.evalWriteAsync((String) null, null, RedisCommands.EVAL_LONG, 
+                            "local keys = redis.call('keys', ARGV[1]) "
+                              + "local n = 0 "
+                              + "for i=1, #keys,5000 do "
+                                  + "n = n + redis.call('del', unpack(keys, i, math.min(i+4999, table.getn(keys)))) "
+                              + "end "
+                          + "return n;", Collections.emptyList(), pattern);
         }
-
+        
         int batchSize = 500;
         List<CompletableFuture<Long>> futures = new ArrayList<>();
         for (MasterSlaveEntry entry : commandExecutor.getConnectionManager().getEntrySet()) {
@@ -323,20 +256,20 @@ public final class RedissonKeys implements RKeys {
             commandExecutor.getServiceManager().getExecutor().execute(() -> {
                 long count = 0;
                 try {
-                    Iterator<Object> keysIterator = createKeysIterator(ByteArrayCodec.INSTANCE, entry, binaryScan, pattern, batchSize, null);
-                    List<Object> keys = new ArrayList<>();
+                    Iterator<String> keysIterator = createKeysIterator(entry, scan, pattern, batchSize);
+                    List<String> keys = new ArrayList<>();
                     while (keysIterator.hasNext()) {
-                        Object key = keysIterator.next();
+                        String key = keysIterator.next();
                         keys.add(key);
 
                         if (keys.size() % batchSize == 0) {
-                            count += delegate.apply(keys.toArray());
+                            count += delete(keys.toArray(new String[0]));
                             keys.clear();
                         }
                     }
 
                     if (!keys.isEmpty()) {
-                        count += delegate.apply(keys.toArray());
+                        count += delete(keys.toArray(new String[0]));
                         keys.clear();
                     }
 
@@ -344,7 +277,6 @@ public final class RedissonKeys implements RKeys {
                 } catch (Exception e) {
                     future.completeExceptionally(e);
                 }
-
             });
         }
 
@@ -597,11 +529,6 @@ public final class RedissonKeys implements RKeys {
     }
 
     @Override
-    public Stream<String> getKeysStream(KeysScanOptions options) {
-        return toStream(getKeys(options).iterator());
-    }
-
-    @Override
     public Stream<String> getKeysStream(int count) {
         return toStream(getKeys(count).iterator());
     }
@@ -615,71 +542,4 @@ public final class RedissonKeys implements RKeys {
     public RFuture<Void> swapdbAsync(int db1, int db2) {
         return commandExecutor.writeAsync(null, RedisCommands.SWAPDB, db1, db2);
     }
-
-    @Override
-    public int addListener(ObjectListener listener) {
-        return commandExecutor.get(addListenerAsync(listener));
-    }
-
-    @Override
-    public RFuture<Integer> addListenerAsync(ObjectListener listener) {
-        if (listener instanceof NewObjectListener) {
-            return addListenerAsync("__keyevent@*:new", (NewObjectListener) listener, NewObjectListener::onNew);
-        }
-        if (listener instanceof SetObjectListener) {
-            return addListenerAsync("__keyevent@*:set", (SetObjectListener) listener, SetObjectListener::onSet);
-        }
-        if (listener instanceof ExpiredObjectListener) {
-            return addListenerAsync("__keyevent@*:expired", (ExpiredObjectListener) listener, ExpiredObjectListener::onExpired);
-        }
-        if (listener instanceof DeletedObjectListener) {
-            return addListenerAsync("__keyevent@*:del", (DeletedObjectListener) listener, DeletedObjectListener::onDeleted);
-        }
-        if (listener instanceof FlushListener) {
-            if (commandExecutor.getServiceManager().getCfg().getProtocol() != Protocol.RESP3) {
-                throw new IllegalStateException("`protocol` config setting should be set to RESP3 value");
-            }
-
-            PublishSubscribeService subscribeService = commandExecutor.getConnectionManager().getSubscribeService();
-            CompletableFuture<Integer> r = subscribeService.subscribe(commandExecutor, (FlushListener) listener);
-            return new CompletableFutureWrapper<>(r);
-        }
-        throw new IllegalArgumentException();
-    }
-
-    private <T extends ObjectListener> RFuture<Integer> addListenerAsync(String name, T listener, BiConsumer<T, String> consumer) {
-        RPatternTopic topic = new RedissonPatternTopic(StringCodec.INSTANCE, commandExecutor, name);
-        return topic.addListenerAsync(String.class, (pattern, channel, msg) -> {
-            consumer.accept(listener, msg);
-        });
-    }
-
-    @Override
-    public void removeListener(int listenerId) {
-        commandExecutor.get(removeListenerAsync(listenerId));
-    }
-
-    @Override
-    public RFuture<Void> removeListenerAsync(int listenerId) {
-        PublishSubscribeService subscribeService = commandExecutor.getConnectionManager().getSubscribeService();
-        CompletableFuture<Void> f = subscribeService.removeFlushListenerAsync(listenerId);
-        f = f.thenCompose(r -> removeListenerAsync(null, listenerId,
-                "__keyevent@*:expired", "__keyevent@*:del", "__keyevent@*:set", "__keyevent@*:new"));
-        return new CompletableFutureWrapper<>(f);
-    }
-
-    private RFuture<Void> removeListenerAsync(RFuture<Void> future, int listenerId, String... names) {
-        List<CompletableFuture<Void>> futures = new ArrayList<>(names.length + 1);
-        if (future != null) {
-            futures.add(future.toCompletableFuture());
-        }
-        for (String name : names) {
-            RPatternTopic topic = new RedissonPatternTopic(StringCodec.INSTANCE, commandExecutor, name);
-            RFuture<Void> f1 = topic.removeListenerAsync(listenerId);
-            futures.add(f1.toCompletableFuture());
-        }
-        CompletableFuture<Void> f = CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
-        return new CompletableFutureWrapper<>(f);
-    }
-
 }

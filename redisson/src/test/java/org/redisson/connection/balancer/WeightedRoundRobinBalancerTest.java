@@ -8,39 +8,35 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.redisson.RedisDockerTest;
+import org.redisson.RedisRunner;
+import org.redisson.RedisRunner.RedisProcess;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.WriteRedisConnectionException;
 import org.redisson.config.Config;
 import org.redisson.config.ReadMode;
-import org.testcontainers.containers.GenericContainer;
 
-public class WeightedRoundRobinBalancerTest extends RedisDockerTest {
+public class WeightedRoundRobinBalancerTest {
 
     @Test
     public void testUseMasterForReadsIfNoConnectionsToSlaves() {
-            GenericContainer<?> master = null;
-            GenericContainer<?> slave = null;
+        Assertions.assertThrows(WriteRedisConnectionException.class, () -> {
+            RedisProcess master = null;
+            RedisProcess slave = null;
             RedissonClient client = null;
             try {
-                master = createRedis();
-                master.start();
-                slave = createRedis();
-                slave.start();
-
-                String masterurl = "redis://" + master.getHost() + ":" + master.getFirstMappedPort();
-                String slaveurl = "redis://" + slave.getHost() + ":" + slave.getFirstMappedPort();
+                master = redisTestInstance();
+                slave = redisTestInstance();
 
                 Map<String, Integer> weights = new HashMap<>();
-                weights.put(masterurl, 1);
-                weights.put(slaveurl, 2);
+                weights.put(master.getRedisServerAddressAndPort(), 1);
+                weights.put(slave.getRedisServerAddressAndPort(), 2);
 
                 Config config = new Config();
                 config.useMasterSlaveServers()
                         .setReadMode(ReadMode.SLAVE)
-                        .setMasterAddress(masterurl)
-                        .addSlaveAddress(slaveurl)
+                        .setMasterAddress(master.getRedisServerAddressAndPort())
+                        .addSlaveAddress(slave.getRedisServerAddressAndPort())
                         .setLoadBalancer(new WeightedRoundRobinBalancer(weights, 1));
 
                 client = Redisson.create(config);
@@ -51,9 +47,7 @@ public class WeightedRoundRobinBalancerTest extends RedisDockerTest {
                 slave.stop();
 
                 RedissonClient clientCopy = client;
-                Assertions.assertThrows(WriteRedisConnectionException.class, () -> {
-                    clientCopy.getBucket("key").get();
-                });
+                assertThat(clientCopy.getBucket("key").get()).isNull();
             } finally {
                 if (master != null) {
                     master.stop();
@@ -65,6 +59,14 @@ public class WeightedRoundRobinBalancerTest extends RedisDockerTest {
                     client.shutdown();
                 }
             }
+        });
     }
 
+    private RedisProcess redisTestInstance() throws IOException, InterruptedException {
+        return new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+    }
 }

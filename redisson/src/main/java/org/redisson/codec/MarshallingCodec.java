@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -195,6 +195,7 @@ public class MarshallingCodec extends BaseCodec {
         this(Protocol.RIVER, null);
         configuration.setClassResolver(new SimpleClassResolver(classLoader));
         this.classLoader = classLoader;
+        warmup();
     }
     
     public MarshallingCodec(ClassLoader classLoader, MarshallingCodec codec) {
@@ -212,6 +213,7 @@ public class MarshallingCodec extends BaseCodec {
         config.setVersion(codec.configuration.getVersion());
         this.configuration = config;
         this.classLoader = classLoader;
+        warmup();
     }
     
     public MarshallingCodec(Protocol protocol, MarshallingConfiguration configuration) {
@@ -223,9 +225,25 @@ public class MarshallingCodec extends BaseCodec {
             configuration = createConfig();
         }
         this.configuration = configuration;
+        warmup();
     }
 
     private static boolean warmedup = false;
+
+    private void warmup() {
+        if (warmedup) {
+            return;
+        }
+        warmedup = true;
+
+        try {
+            ByteBuf d = getValueEncoder().encode("testValue");
+            getValueDecoder().decode(d, null);
+            d.release();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 
     @Override
     public Decoder<Object> getValueDecoder() {

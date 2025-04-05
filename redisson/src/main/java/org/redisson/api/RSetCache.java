@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@ public interface RSetCache<V> extends RSet<V>, RExpirable, RSetCacheAsync<V>, RD
     int size();
 
     /**
-     * Use {@link #addIfAbsent(Map)} instead
+     * Use {@link #addIfAbsent(Duration, Object)} instead
      *
      * @param values - values to add
      * @param ttl - time to live for value.
@@ -136,15 +136,6 @@ public interface RSetCache<V> extends RSet<V>, RExpirable, RSetCacheAsync<V>, RD
      * @return amount of added elements
      */
     int addAllIfAbsent(Map<V, Duration> objects);
-    /**
-     * Adds elements to this set only if all of them haven't been added before.
-     * <p>
-     * Requires <b>Redis 3.0.2 and higher.</b>
-     *
-     * @param objects map of elements to add
-     * @return <code>true</code> if elements added and <code>false</code> if not.
-     */
-    boolean addIfAbsent(Map<V, Duration> objects);
 
     /**
      * Adds elements to this set only if they already exist.
@@ -175,19 +166,5 @@ public interface RSetCache<V> extends RSet<V>, RExpirable, RSetCacheAsync<V>, RD
      * @return amount of added elements
      */
     int addAllIfLess(Map<V, Duration> objects);
-
-    /**
-     * Adds object event listener
-     *
-     * @see org.redisson.api.listener.TrackingListener
-     * @see org.redisson.api.listener.SetAddListener
-     * @see org.redisson.api.listener.SetRemoveListener
-     * @see org.redisson.api.ExpiredObjectListener
-     * @see org.redisson.api.DeletedObjectListener
-     *
-     * @param listener - object event listener
-     * @return listener id
-     */
-    int addListener(ObjectListener listener);
 
 }

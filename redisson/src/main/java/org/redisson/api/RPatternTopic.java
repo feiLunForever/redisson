@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,12 +58,12 @@ public interface RPatternTopic {
     int addListener(PatternStatusListener listener);
 
     /**
-     * Removes the listeners by <code>ids</code> for listening this topic
+     * Removes the listener by <code>id</code> for listening this topic
      *
-     * @param ids listener ids
+     * @param listenerId - id of message listener
      */
-    void removeListener(Integer... ids);
-
+    void removeListener(int listenerId);
+    
     /**
      * Removes the listener by its instance
      *
@@ -87,25 +87,6 @@ public interface RPatternTopic {
     
     <T> RFuture<Integer> addListenerAsync(Class<T> type, PatternMessageListener<T> listener);
 
-    /**
-     * Removes the listeners by <code>ids</code> for listening this topic
-     *
-     * @param ids listener ids
-     * @return void
-     */
-    RFuture<Void> removeListenerAsync(Integer... ids);
-
-    /**
-     * Returns  active topic list of this pattern
-     * @return all actives channel of this pattern
-     */
-    RFuture<List<String>> getActiveTopicsAsync();
-
-
-    /**
-     * Returns active topic list of this pattern
-     * @return all actives topic of this pattern
-     */
-    List<String> getActiveTopics();
+    RFuture<Void> removeListenerAsync(int listenerId);
 
 }

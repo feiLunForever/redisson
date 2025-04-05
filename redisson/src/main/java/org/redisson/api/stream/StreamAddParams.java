@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -43,6 +43,26 @@ public final class StreamAddParams<K, V> implements StreamAddArgs<K, V>,
     @Override
     public StreamAddArgs<K, V> noMakeStream() {
         this.noMakeStream = true;
+        return this;
+    }
+
+    @Override
+    public StreamAddArgs<K, V> trim(TrimStrategy strategy, int threshold) {
+        return trim(strategy, threshold, 0);
+    }
+
+    @Override
+    public StreamAddArgs<K, V> trimStrict(TrimStrategy strategy, int threshold) {
+        this.maxLen = threshold;
+        this.trimStrict = true;
+        return this;
+    }
+
+    @Override
+    public StreamAddArgs<K, V> trim(TrimStrategy strategy, int threshold, int limit) {
+        this.maxLen = threshold;
+        this.trimStrict = false;
+        this.limit = limit;
         return this;
     }
 

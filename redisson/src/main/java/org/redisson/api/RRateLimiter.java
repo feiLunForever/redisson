@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package org.redisson.api;
 
-import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -27,74 +26,27 @@ import java.util.concurrent.TimeUnit;
 public interface RRateLimiter extends RRateLimiterAsync, RExpirable {
 
     /**
-     * Use {@link #trySetRate(RateType, long, Duration)} instead
+     * Initializes RateLimiter's state and stores config to Redis server.
      * 
-     * @param mode rate mode
-     * @param rate rate
-     * @param rateInterval rate time interval
-     * @param rateIntervalUnit rate time interval unit
+     * @param mode - rate mode
+     * @param rate - rate
+     * @param rateInterval - rate time interval
+     * @param rateIntervalUnit - rate time interval unit
      * @return {@code true} if rate was set and {@code false}
      *         otherwise
      */
-    @Deprecated
     boolean trySetRate(RateType mode, long rate, long rateInterval, RateIntervalUnit rateIntervalUnit);
 
     /**
-     * Sets the rate limit only if it hasn't been set before.
+     * Updates RateLimiter's state and stores config to Redis server.
      *
-     * @param mode rate mode
-     * @param rate rate
-     * @param rateInterval rate time interval
-     * @return {@code true} if rate was set and {@code false}
-     *         otherwise
+     * @param mode - rate mode
+     * @param rate - rate
+     * @param rateInterval - rate time interval
+     * @param rateIntervalUnit - rate time interval unit
      */
-    boolean trySetRate(RateType mode, long rate, Duration rateInterval);
-
-    /**
-     * Sets the rate limit only if it hasn't been set before.
-     * Time to live is applied only if rate limit has been set successfully.
-     *
-     * @param mode rate mode
-     * @param rate rate
-     * @param rateInterval rate time interval
-     * @param keepAliveTime this is the maximum time that the limiter will wait for a new acquisition before deletion
-     * @return {@code true} if rate was set and {@code false}
-     *         otherwise
-     */
-    boolean trySetRate(RateType mode, long rate, Duration rateInterval, Duration keepAliveTime);
-
-    /**
-     * Use {@link #setRate(RateType, long, Duration)} instead.
-     *
-     * @param mode rate mode
-     * @param rate rate
-     * @param rateInterval rate time interval
-     * @param rateIntervalUnit rate time interval unit
-     */
-    @Deprecated
     void setRate(RateType mode, long rate, long rateInterval, RateIntervalUnit rateIntervalUnit);
-
-    /**
-     * Sets the rate limit and clears the state.
-     * Overrides both limit and state if they haven't been set before.
-     *
-     * @param mode rate mode
-     * @param rate rate
-     * @param rateInterval rate time interval
-     */
-    void setRate(RateType mode, long rate, Duration rateInterval);
-
-    /**
-     * Sets time to live, the rate limit, and clears the state.
-     * Overrides both limit and state if they haven't been set before.
-     *
-     * @param mode rate mode
-     * @param rate rate
-     * @param rateInterval rate time interval
-     * @param keepAliveTime this is the maximum time that the limiter will wait for a new acquisition before deletion
-     */
-    void setRate(RateType mode, long rate, Duration rateInterval, Duration keepAliveTime);
-
+    
     /**
      * Acquires a permit only if one is available at the
      * time of invocation.
@@ -150,17 +102,6 @@ public interface RRateLimiter extends RRateLimiterAsync, RExpirable {
     void acquire(long permits);
     
     /**
-     * Use {@link #tryAcquire(Duration)} instead.
-     *
-     * @param timeout the maximum time to wait for a permit
-     * @param unit the time unit of the {@code timeout} argument
-     * @return {@code true} if a permit was acquired and {@code false}
-     *         if the waiting time elapsed before a permit was acquired
-     */
-    @Deprecated
-    boolean tryAcquire(long timeout, TimeUnit unit);
-    
-    /**
      * Acquires a permit from this RateLimiter, if one becomes available
      * within the given waiting time.
      *
@@ -179,23 +120,12 @@ public interface RRateLimiter extends RRateLimiterAsync, RExpirable {
      * will not wait at all.
      *
      * @param timeout the maximum time to wait for a permit
-     * @return {@code true} if a permit was acquired and {@code false}
-     *         if the waiting time elapsed before a permit was acquired
-     */
-    boolean tryAcquire(Duration timeout);
-
-    /**
-     * Use {@link #tryAcquire(long, Duration)} instead.
-     *
-     * @param permits amount
-     * @param timeout the maximum time to wait for a permit
      * @param unit the time unit of the {@code timeout} argument
      * @return {@code true} if a permit was acquired and {@code false}
      *         if the waiting time elapsed before a permit was acquired
      */
-    @Deprecated
-    boolean tryAcquire(long permits, long timeout, TimeUnit unit);
-
+    boolean tryAcquire(long timeout, TimeUnit unit);
+    
     /**
      * Acquires the given number of <code>permits</code> only if all are available
      * within the given waiting time.
@@ -215,10 +145,11 @@ public interface RRateLimiter extends RRateLimiterAsync, RExpirable {
      *
      * @param permits amount
      * @param timeout the maximum time to wait for a permit
+     * @param unit the time unit of the {@code timeout} argument
      * @return {@code true} if a permit was acquired and {@code false}
      *         if the waiting time elapsed before a permit was acquired
      */
-    boolean tryAcquire(long permits, Duration timeout);
+    boolean tryAcquire(long permits, long timeout, TimeUnit unit);
 
     /**
      * Returns current configuration of this RateLimiter object.

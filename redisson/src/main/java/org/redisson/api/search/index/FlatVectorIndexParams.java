@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,16 +32,9 @@ public final class FlatVectorIndexParams implements FlatVectorIndex,
     private Integer initialCapacity;
     private Integer blockSize;
     private int count;
-    private String as;
 
     FlatVectorIndexParams(String name) {
         this.fieldName = name;
-    }
-
-    @Override
-    public FlatVectorIndexParams as(String as) {
-        this.as = as;
-        return this;
     }
 
     @Override
@@ -105,9 +98,5 @@ public final class FlatVectorIndexParams implements FlatVectorIndex,
 
     public int getCount() {
         return count;
-    }
-
-    public String getAs() {
-        return as;
     }
 }

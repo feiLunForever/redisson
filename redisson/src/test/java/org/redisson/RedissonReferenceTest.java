@@ -11,17 +11,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.*;
-import org.redisson.client.codec.Codec;
 import org.redisson.client.protocol.ScoredEntry;
 import org.redisson.codec.JsonJacksonCodec;
-import org.redisson.codec.Kryo5Codec;
 import org.redisson.config.Config;
 
 /**
  *
  * @author Rui Gu (https://github.com/jackygurui)
  */
-public class RedissonReferenceTest extends RedisDockerTest {
+public class RedissonReferenceTest extends BaseTest {
 
     @Test
     public void testBitSet() {
@@ -240,12 +238,16 @@ public class RedissonReferenceTest extends RedisDockerTest {
 
 
     @Test
-    public void shouldUseDefaultCodec() {
+    public void shouldUseDefaultCodec() throws Exception {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+        objectMapper.configure(DeserializationFeature.UNWRAP_ROOT_VALUE, false);
+        JsonJacksonCodec codec = new JsonJacksonCodec(objectMapper);
+
         Config config = new Config();
-        Codec codec = new Kryo5Codec();
         config.setCodec(codec);
         config.useSingleServer()
-                .setAddress(redisson.getConfig().useSingleServer().getAddress());
+                .setAddress(RedisRunner.getDefaultRedisServerBindAddressAndPort());
 
         RedissonClient redissonClient = Redisson.create(config);
         RBucket<Object> b1 = redissonClient.getBucket("b1");
@@ -254,7 +256,11 @@ public class RedissonReferenceTest extends RedisDockerTest {
         Assertions.assertTrue(s1.add(b1));
         Assertions.assertTrue(codec == b1.getCodec());
 
-        RedissonClient redissonClient1 = Redisson.create(config);
+        Config config1 = new Config();
+        config1.setCodec(codec);
+        config1.useSingleServer()
+                .setAddress(RedisRunner.getDefaultRedisServerBindAddressAndPort());
+        RedissonClient redissonClient1 = Redisson.create(config1);
 
         RSet<RBucket> s2 = redissonClient1.getSet("s1");
         RBucket<MyObject> b2 = s2.iterator(1).next();

@@ -2,14 +2,14 @@ package org.redisson;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
-import org.redisson.api.NameMapper;
+import org.redisson.RedisRunner.RedisProcess;
 import org.redisson.api.RBoundedBlockingQueue;
 import org.redisson.api.RFuture;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.RedisException;
 import org.redisson.config.Config;
-import org.testcontainers.containers.GenericContainer;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
@@ -19,35 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
-public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
+public class RedissonBoundedBlockingQueueTest extends BaseTest {
 
     @Test
-    public void testNameMapper() {
-        Config config = createConfig();
-        config.useSingleServer()
-                .setNameMapper(new NameMapper() {
-                    @Override
-                    public String map(String name) {
-                        return name + ":suffix:";
-                    }
-
-                    @Override
-                    public String unmap(String name) {
-                        return name.replace(":suffix:", "");
-                    }
-                });
-
-        RedissonClient redisson = Redisson.create(config);
-        RBoundedBlockingQueue<Integer> queue = redisson.getBoundedBlockingQueue("bounded-queue");
-
-        queue.trySetCapacity(5);
-        queue.add(1);
-
-        queue.delete();
-        assertThat(redisson.getKeys().count()).isZero();
-    }
-
-        @Test
     public void testOfferTimeout() throws InterruptedException {
         RBoundedBlockingQueue<Integer> queue = redisson.getBoundedBlockingQueue("bounded-queue");
         queue.trySetCapacity(5);
@@ -241,14 +215,17 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
     }
     
     @Test
-    public void testPollWithBrokenConnection() throws InterruptedException, ExecutionException {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
-
-        Config config = createConfig(redis);
+    public void testPollWithBrokenConnection() throws IOException, InterruptedException, ExecutionException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
         RedissonClient redisson = Redisson.create(config);
-
-        RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("bounded-queue:pollTimeout");
+        final RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("bounded-queue:pollTimeout");
         assertThat(queue1.trySetCapacity(5)).isTrue();
         RFuture<Integer> f = queue1.pollAsync(5, TimeUnit.SECONDS);
 
@@ -258,7 +235,7 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         } catch (TimeoutException e) {
             // skip
         }
-        redis.stop();
+        runner.stop();
 
         long start = System.currentTimeMillis();
         assertThat(f.get()).isNull();
@@ -268,13 +245,18 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
     }
     
     @Test
-    public void testPollReattach() throws InterruptedException {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
-
-        Config config = createConfig(redis);
+    public void testPollReattach() throws InterruptedException, IOException, ExecutionException, TimeoutException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
         RedissonClient redisson = Redisson.create(config);
-
+        redisson.getKeys().flushall();
+        
         final AtomicBoolean executed = new AtomicBoolean();
         
         Thread t = new Thread() {
@@ -296,9 +278,14 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         
         t.start();
         t.join(1000);
+        runner.stop();
 
-        restart(redis);
-
+        runner = new RedisRunner()
+                .port(runner.getRedisServerPort())
+                .nosave()
+                .randomDir()
+                .run();
+        
         Thread.sleep(1000);
 
         RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("queue:pollany");
@@ -310,15 +297,19 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         await().atMost(5, TimeUnit.SECONDS).untilTrue(executed);
         
         redisson.shutdown();
-        redis.stop();
+        runner.stop();
     }
     
     @Test
-    public void testPollAsyncReattach() throws InterruptedException, ExecutionException, TimeoutException {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
-
-        Config config = createConfig(redis);
+    public void testPollAsyncReattach() throws InterruptedException, IOException, ExecutionException, TimeoutException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
         RedissonClient redisson = Redisson.create(config);
         
         RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("queue:pollany");
@@ -328,9 +319,13 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         } catch (ExecutionException | TimeoutException e) {
             // skip
         }
+        runner.stop();
 
-        restart(redis);
-
+        runner = new RedisRunner()
+                .port(runner.getRedisServerPort())
+                .nosave()
+                .randomDir()
+                .run();
         assertThat(queue1.trySetCapacity(15)).isTrue();
         queue1.put(123);
         
@@ -344,18 +339,23 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         assertThat(result).isEqualTo(123);
         
         redisson.shutdown();
-        redis.stop();
+        runner.stop();
     }
 
     
     @Test
-    public void testTakeReattach() throws InterruptedException, ExecutionException, TimeoutException {
-        GenericContainer<?> redis = createRedis();
-        redis.start();
-
-        Config config = createConfig(redis);
+    public void testTakeReattach() throws InterruptedException, IOException, ExecutionException, TimeoutException {
+        RedisProcess runner = new RedisRunner()
+                .nosave()
+                .randomDir()
+                .randomPort()
+                .run();
+        
+        Config config = new Config();
+        config.useSingleServer().setAddress(runner.getRedisServerAddressAndPort());
         RedissonClient redisson = Redisson.create(config);
-
+        redisson.getKeys().flushall();
+        
         RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("testTakeReattach");
         assertThat(queue1.trySetCapacity(15)).isTrue();
         RFuture<Integer> f = queue1.takeAsync();
@@ -364,9 +364,13 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         } catch (ExecutionException | TimeoutException e) {
             // skip
         }
+        runner.stop();
 
-        restart(redis);
-
+        runner = new RedisRunner()
+                .port(runner.getRedisServerPort())
+                .nosave()
+                .randomDir()
+                .run();
         assertThat(queue1.trySetCapacity(15)).isTrue();
         queue1.put(123);
         
@@ -378,9 +382,9 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         
         Integer result = f.get(1, TimeUnit.SECONDS);
         assertThat(result).isEqualTo(123);
-
+        runner.stop();
+        
         redisson.shutdown();
-        redis.stop();
     }
     
     @Test
@@ -389,7 +393,8 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         config.useSingleServer().setConnectionMinimumIdleSize(1).setConnectionPoolSize(1);
 
         RedissonClient redisson = Redisson.create(config);
-
+        redisson.getKeys().flushall();
+        
         RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("testTakeAsyncCancel");
         assertThat(queue1.trySetCapacity(15)).isTrue();
         for (int i = 0; i < 10; i++) {
@@ -409,7 +414,8 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         config.useSingleServer().setConnectionMinimumIdleSize(1).setConnectionPoolSize(1);
 
         RedissonClient redisson = Redisson.create(config);
-
+        redisson.getKeys().flushall();
+        
         RBoundedBlockingQueue<Integer> queue1 = redisson.getBoundedBlockingQueue("queue:pollany");
         assertThat(queue1.trySetCapacity(15)).isTrue();
         for (int i = 0; i < 10; i++) {
@@ -620,20 +626,6 @@ public class RedissonBoundedBlockingQueueTest extends RedisDockerTest {
         queue.drainTo(batch, 60);
         assertThat(queue.remainingCapacity()).isEqualTo(100);
         Assertions.assertEquals(0, queue.size());
-    }
-    
-    @Test
-    public void testDrainToAsync() throws ExecutionException, InterruptedException {
-        RBoundedBlockingQueue<Integer> queue = redisson.getBoundedBlockingQueue("queue");
-        queue.trySetCapacity(100);
-        for (int i = 0 ; i < 100; i++) {
-            assertThat(queue.offer(i)).isTrue();
-        }
-        Assertions.assertEquals(100, queue.size());
-        Set<Integer> batch = new HashSet<Integer>();
-        RFuture<Integer> future = queue.drainToAsync(batch, 0);
-        Assertions.assertEquals(future.get(), 0);
-        Assertions.assertEquals(batch.size(), 0);
     }
 
     @Test

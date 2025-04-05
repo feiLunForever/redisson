@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,33 +26,23 @@ public final class GeoIndexParams implements GeoIndex {
     private boolean noIndex;
     private String fieldName;
     private String as;
-    private boolean indexMissing;
 
-    GeoIndexParams(String name) {
+    protected GeoIndexParams(String name) {
         this.fieldName = name;
     }
 
-    @Override
     public GeoIndexParams as(String as) {
         this.as = as;
         return this;
     }
 
-    @Override
     public GeoIndexParams sortMode(SortMode sortMode) {
         this.sortMode = sortMode;
         return this;
     }
 
-    @Override
     public GeoIndexParams noIndex() {
         this.noIndex = true;
-        return this;
-    }
-
-    @Override
-    public GeoIndexParams indexMissing() {
-        this.indexMissing = true;
         return this;
     }
 
@@ -70,9 +60,5 @@ public final class GeoIndexParams implements GeoIndex {
 
     public String getAs() {
         return as;
-    }
-
-    public boolean isIndexMissing() {
-        return indexMissing;
     }
 }

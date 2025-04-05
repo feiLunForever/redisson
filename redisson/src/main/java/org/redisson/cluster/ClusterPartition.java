@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,12 @@
  */
 package org.redisson.cluster;
 
-import org.redisson.misc.RedisURI;
+import java.util.BitSet;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import org.redisson.misc.RedisURI;
 
 import static org.redisson.connection.MasterSlaveConnectionManager.MAX_SLOT;
 
@@ -36,17 +38,13 @@ public class ClusterPartition {
     private final String nodeId;
     private boolean masterFail;
     private RedisURI masterAddress;
-    private final Set<RedisURI> slaveAddresses = Collections.newSetFromMap(new ConcurrentHashMap<>());
-    private final Set<RedisURI> failedSlaves = Collections.newSetFromMap(new ConcurrentHashMap<>());
-
-    private BitSet slots;
-    private Set<ClusterSlotRange> slotRanges = Collections.emptySet();
+    private final Set<RedisURI> slaveAddresses = new HashSet<>();
+    private final Set<RedisURI> failedSlaves = new HashSet<>();
+    
+    private final BitSet slots = new BitSet(MAX_SLOT);
+    private final Set<ClusterSlotRange> slotRanges = new HashSet<ClusterSlotRange>();
 
     private ClusterPartition parent;
-
-    private int references;
-
-    private long time = System.currentTimeMillis();
     
     public ClusterPartition(String nodeId) {
         super();
@@ -80,21 +78,33 @@ public class ClusterPartition {
         return masterFail;
     }
 
-    public void updateSlotRanges(Set<ClusterSlotRange> ranges, BitSet slots) {
-        this.slotRanges = ranges;
-        this.slots = slots;
+    public void addSlots(BitSet slots) {
+        this.slots.or(slots);
     }
 
-    public void setSlotRanges(Set<ClusterSlotRange> ranges) {
-        slots = new BitSet(MAX_SLOT);
+    public void removeSlots(BitSet slots) {
+        this.slots.andNot(slots);
+    }
+
+    public void addSlotRanges(Set<ClusterSlotRange> ranges) {
         for (ClusterSlotRange clusterSlotRange : ranges) {
             slots.set(clusterSlotRange.getStartSlot(), clusterSlotRange.getEndSlot() + 1);
         }
-        slotRanges = ranges;
+        slotRanges.addAll(ranges);
+    }
+    public void removeSlotRanges(Set<ClusterSlotRange> ranges) {
+        for (ClusterSlotRange clusterSlotRange : ranges) {
+            slots.clear(clusterSlotRange.getStartSlot(), clusterSlotRange.getEndSlot() + 1);
+        }
+        slotRanges.removeAll(ranges);
+    }
+    public Set<ClusterSlotRange> getSlotRanges() {
+        return slotRanges;
     }
 
-    public Set<ClusterSlotRange> getSlotRanges() {
-        return Collections.unmodifiableSet(slotRanges);
+    public void clear() {
+        slotRanges.clear();
+        this.slots.clear();
     }
 
     public Iterable<Integer> getSlots() {
@@ -144,29 +154,31 @@ public class ClusterPartition {
         slaveAddresses.remove(uri);
         failedSlaves.remove(uri);
     }
-
-    public void incReference() {
-        references++;
-    }
-    public int decReference() {
-        return --references;
-    }
-
-    public long getTime() {
-        return time;
-    }
-
+    
     @Override
+    @SuppressWarnings("AvoidInlineConditionals")
     public int hashCode() {
-        return Objects.hash(nodeId);
+        final int prime = 31;
+        int result = 1;
+        result = prime * result + ((nodeId == null) ? 0 : nodeId.hashCode());
+        return result;
     }
 
     @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        ClusterPartition that = (ClusterPartition) o;
-        return Objects.equals(nodeId, that.nodeId);
+    public boolean equals(Object obj) {
+        if (this == obj)
+            return true;
+        if (obj == null)
+            return false;
+        if (getClass() != obj.getClass())
+            return false;
+        ClusterPartition other = (ClusterPartition) obj;
+        if (nodeId == null) {
+            if (other.nodeId != null)
+                return false;
+        } else if (!nodeId.equals(other.nodeId))
+            return false;
+        return true;
     }
 
     @Override

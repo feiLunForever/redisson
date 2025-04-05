@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,10 @@
  */
 package org.redisson.connection;
 
-import org.redisson.config.*;
+import org.redisson.config.MasterSlaveServersConfig;
+import org.redisson.config.ReadMode;
+import org.redisson.config.SingleServerConfig;
+import org.redisson.config.SubscriptionMode;
 
 /**
  * 
@@ -24,16 +27,16 @@ import org.redisson.config.*;
  */
 public class SingleConnectionManager extends MasterSlaveConnectionManager {
 
-    SingleConnectionManager(SingleServerConfig cfg, Config configCopy) {
-        super(create(cfg), configCopy);
+    public SingleConnectionManager(SingleServerConfig cfg, ServiceManager serviceManager) {
+        super(create(cfg), serviceManager);
     }
 
     private static MasterSlaveServersConfig create(SingleServerConfig cfg) {
         MasterSlaveServersConfig newconfig = new MasterSlaveServersConfig();
         
         newconfig.setPingConnectionInterval(cfg.getPingConnectionInterval());
+        newconfig.setSslEnableEndpointIdentification(cfg.isSslEnableEndpointIdentification());
         newconfig.setSslProvider(cfg.getSslProvider());
-        newconfig.setSslKeystoreType(cfg.getSslKeystoreType());
         newconfig.setSslTruststore(cfg.getSslTruststore());
         newconfig.setSslTruststorePassword(cfg.getSslTruststorePassword());
         newconfig.setSslKeystore(cfg.getSslKeystore());
@@ -63,16 +66,10 @@ public class SingleConnectionManager extends MasterSlaveConnectionManager {
         newconfig.setReadMode(ReadMode.MASTER);
         newconfig.setSubscriptionMode(SubscriptionMode.MASTER);
         newconfig.setKeepAlive(cfg.isKeepAlive());
-        newconfig.setTcpKeepAliveCount(cfg.getTcpKeepAliveCount());
-        newconfig.setTcpKeepAliveIdle(cfg.getTcpKeepAliveIdle());
-        newconfig.setTcpKeepAliveInterval(cfg.getTcpKeepAliveInterval());
-        newconfig.setTcpUserTimeout(cfg.getTcpUserTimeout());
         newconfig.setTcpNoDelay(cfg.isTcpNoDelay());
         newconfig.setNameMapper(cfg.getNameMapper());
         newconfig.setCredentialsResolver(cfg.getCredentialsResolver());
         newconfig.setCommandMapper(cfg.getCommandMapper());
-        newconfig.setSslVerificationMode(cfg.getSslVerificationMode());
-        newconfig.setSubscriptionTimeout(cfg.getSubscriptionTimeout());
 
         return newconfig;
     }

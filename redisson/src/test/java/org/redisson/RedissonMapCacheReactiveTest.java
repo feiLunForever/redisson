@@ -1,18 +1,23 @@
 package org.redisson;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.RLockReactive;
 import org.redisson.api.RMapCacheReactive;
 import org.redisson.api.RMapReactive;
-
-import java.io.Serializable;
-import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.redisson.codec.MsgPackJacksonCodec;
 
 public class RedissonMapCacheReactiveTest extends BaseReactiveTest {
 
@@ -248,22 +253,8 @@ public class RedissonMapCacheReactiveTest extends BaseReactiveTest {
     }
 
     @Test
-    public void testComputeIfAbsent() {
-        RMapCacheReactive<Integer, String> map = redisson.getMapCache("simple");
-
-        map.computeIfAbsent(7, Duration.ofSeconds(1), new Function<Integer, String>() {
-            @Override
-            public String apply(Integer integer) {
-                return "1234";
-            }
-        }).block();
-
-        assertThat(map.get(7).block()).isEqualTo("1234");
-    }
-
-    @Test
     public void testContainsValue() throws InterruptedException {
-        RMapCacheReactive<SimpleKey, SimpleValue> map = redisson.getMapCache("simple31");
+        RMapCacheReactive<SimpleKey, SimpleValue> map = redisson.getMapCache("simple31", new MsgPackJacksonCodec());
         Assertions.assertFalse(sync(map.containsValue(new SimpleValue("34"))));
         sync(map.put(new SimpleKey("33"), new SimpleValue("44"), 1, TimeUnit.SECONDS));
 
@@ -304,7 +295,7 @@ public class RedissonMapCacheReactiveTest extends BaseReactiveTest {
 
     @Test
     public void testScheduler() throws InterruptedException {
-        RMapCacheReactive<SimpleKey, SimpleValue> map = redisson.getMapCache("simple");
+        RMapCacheReactive<SimpleKey, SimpleValue> map = redisson.getMapCache("simple", new MsgPackJacksonCodec());
         Assertions.assertNull(sync(map.get(new SimpleKey("33"))));
 
         sync(map.put(new SimpleKey("33"), new SimpleValue("44"), 5, TimeUnit.SECONDS));
@@ -317,7 +308,7 @@ public class RedissonMapCacheReactiveTest extends BaseReactiveTest {
 
     @Test
     public void testPutGet() throws InterruptedException {
-        RMapCacheReactive<SimpleKey, SimpleValue> map = redisson.getMapCache("simple01");
+        RMapCacheReactive<SimpleKey, SimpleValue> map = redisson.getMapCache("simple01", new MsgPackJacksonCodec());
         Assertions.assertNull(sync(map.get(new SimpleKey("33"))));
 
         sync(map.put(new SimpleKey("33"), new SimpleValue("44"), 2, TimeUnit.SECONDS));
@@ -399,7 +390,7 @@ public class RedissonMapCacheReactiveTest extends BaseReactiveTest {
         sync(map.put(4, 6));
         sync(map.put(7, 8));
 
-        List<Integer> keys = new ArrayList<>(Arrays.asList(1, 3, 4, 7));
+        List<Integer> keys = new ArrayList<Integer>(Arrays.asList(1, 3, 4, 7));
         for (Iterator<Integer> iterator = toIterator(map.keyIterator()); iterator.hasNext();) {
             Integer value = iterator.next();
             if (!keys.remove(value)) {

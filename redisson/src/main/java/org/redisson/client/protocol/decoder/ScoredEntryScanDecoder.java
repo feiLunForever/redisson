@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 package org.redisson.client.protocol.decoder;
 
 import org.redisson.client.codec.Codec;
-import org.redisson.client.codec.StringCodec;
+import org.redisson.client.codec.LongCodec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.ScoredEntry;
@@ -33,8 +33,8 @@ import java.util.List;
 public class ScoredEntryScanDecoder<T> implements MultiDecoder<ListScanResult<ScoredEntry<T>>> {
 
     @Override
-    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state, long size) {
-        return StringCodec.INSTANCE.getValueDecoder();
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
+        return LongCodec.INSTANCE.getValueDecoder();
     }
     
     @Override
@@ -44,7 +44,7 @@ public class ScoredEntryScanDecoder<T> implements MultiDecoder<ListScanResult<Sc
         for (int i = 0; i < values.size(); i += 2) {
             result.add(new ScoredEntry<T>(((Number) values.get(i+1)).doubleValue(), (T) values.get(i)));
         }
-        return new ListScanResult<>((String) parts.get(0), result);
+        return new ListScanResult<>((Long) parts.get(0), result);
     }
 
 }

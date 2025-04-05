@@ -14,7 +14,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonCollectionMapReduceTest extends RedisDockerTest {
+public class RedissonCollectionMapReduceTest extends BaseTest {
     
     public static class WordMapper implements RCollectionMapper<String, String, Integer> {
 
@@ -208,7 +208,7 @@ public class RedissonCollectionMapReduceTest extends RedisDockerTest {
         if (RList.class.isAssignableFrom(mapClass)) {
             list = redisson.getList("list");
         } else if (RQueue.class.isAssignableFrom(mapClass)) {
-            list = redisson.getList("queue");
+            list = (RList<String>) redisson.<String>getQueue("queue");
         }
         return list;
     }

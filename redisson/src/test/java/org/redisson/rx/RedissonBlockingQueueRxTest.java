@@ -1,10 +1,7 @@
 package org.redisson.rx;
 
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.reactivestreams.Subscriber;
-import org.reactivestreams.Subscription;
-import org.redisson.api.RBlockingQueueRx;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -15,13 +12,16 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
+import org.redisson.api.RBlockingQueueRx;
 
 public class RedissonBlockingQueueRxTest extends BaseRxTest {
 
     @Test
-    public void testTakeElements() throws InterruptedException {
+    public void testTakeElements() {
         RBlockingQueueRx<Integer> queue = redisson.getBlockingQueue("test");
         List<Integer> elements = new ArrayList<>();
         queue.takeElements().subscribe(new Subscriber<Integer>() {
@@ -48,9 +48,7 @@ public class RedissonBlockingQueueRxTest extends BaseRxTest {
         for (int i = 0; i < 10; i++) {
             sync(queue.add(i));
         }
-
-        Thread.sleep(500);
-
+        
         assertThat(elements).containsExactly(0, 1, 2, 3);
     }
     

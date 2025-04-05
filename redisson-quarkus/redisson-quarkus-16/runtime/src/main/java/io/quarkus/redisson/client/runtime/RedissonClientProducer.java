@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package io.quarkus.redisson.client.runtime;
 
 import com.fasterxml.jackson.databind.MapperFeature;
 import io.quarkus.arc.DefaultBean;
-import io.quarkus.runtime.shutdown.ShutdownConfig;
 import org.eclipse.microprofile.config.ConfigProvider;
 import org.redisson.Redisson;
 import org.redisson.api.RedissonClient;
@@ -28,14 +27,11 @@ import org.redisson.config.PropertiesConvertor;
 import javax.annotation.PreDestroy;
 import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Produces;
-import javax.inject.Inject;
 import javax.inject.Singleton;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
-import java.util.Optional;
-import java.util.concurrent.TimeUnit;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -50,31 +46,28 @@ public class RedissonClientProducer {
 
     private RedissonClient redisson;
 
-    @Inject
-    public ShutdownConfig shutdownConfig;
-
     @Produces
     @Singleton
     @DefaultBean
     public RedissonClient create() throws IOException {
-        String config = null;
+        InputStream configStream;
         Optional<String> configFile = ConfigProvider.getConfig().getOptionalValue("quarkus.redisson.file", String.class);
-        String configFileName = configFile.orElse("redisson.yaml");
-        try (InputStream configStream = Optional.ofNullable(getClass().getResourceAsStream(configFileName))
-                .orElse(Thread.currentThread().getContextClassLoader().getResourceAsStream(configFileName))
-        ) {
-            if (configStream != null) {
-                byte[] array = new byte[configStream.available()];
-                if (configStream.read(array) != -1) {
-                    config = new String(array, StandardCharsets.UTF_8);
-                }
-            }
+        if (configFile.isPresent()) {
+            configStream = getClass().getResourceAsStream(configFile.get());
+        } else {
+            configStream = Thread.currentThread().getContextClassLoader().getResourceAsStream("redisson.yaml");
         }
-        if (config == null) {
+        String config;
+        if (configStream != null) {
+            byte[] array = new byte[configStream.available()];
+            configStream.read(array);
+            config = new String(array, StandardCharsets.UTF_8);
+        } else {
             Stream<String> s = StreamSupport.stream(ConfigProvider.getConfig().getPropertyNames().spliterator(), false);
-            config = PropertiesConvertor.toYaml("quarkus.redisson.", s.sorted().collect(Collectors.toList()), prop -> {
+            String yaml = PropertiesConvertor.toYaml("quarkus.redisson.", s.sorted().collect(Collectors.toList()), prop -> {
                 return ConfigProvider.getConfig().getValue(prop, String.class);
             }, false);
+            config = yaml;
         }
 
         ConfigSupport support = new ConfigSupport() {
@@ -94,12 +87,7 @@ public class RedissonClientProducer {
     @PreDestroy
     public void close() {
         if (redisson != null) {
-            if (shutdownConfig.isShutdownTimeoutSet()){
-                Duration grace = shutdownConfig.timeout.get();
-                redisson.shutdown(grace.toMillis(),grace.toMillis()*2, TimeUnit.MILLISECONDS);
-            }else{
-                redisson.shutdown();
-            }
+            redisson.shutdown();
         }
     }
 

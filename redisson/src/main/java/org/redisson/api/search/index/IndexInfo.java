@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,13 +39,13 @@ public class IndexInfo {
 
     private Map<String, Object> dialectStats;
 
-    private Double docs;
+    private Long docs;
 
-    private Double maxDocId;
+    private Long maxDocId;
 
-    private Double terms;
+    private Long terms;
 
-    private Double records;
+    private Long records;
 
     private Double invertedSize;
 
@@ -61,12 +61,12 @@ public class IndexInfo {
 
     private Double keyTableSize;
 
-    private Double recordsPerDocAverage;
+    private Long recordsPerDocAverage;
 
-    private Double bytesPerRecordAverage;
+    private Long bytesPerRecordAverage;
 
-    private Double offsetsPerTermAverage;
-    private Double offsetBitsPerRecordAverage;
+    private Long offsetsPerTermAverage;
+    private Long offsetBitsPerRecordAverage;
 
     private Long hashIndexingFailures;
 
@@ -74,7 +74,7 @@ public class IndexInfo {
 
     private Long indexing;
 
-    private Double percentIndexed;
+    private Long percentIndexed;
 
     private Long numberOfUses;
 
@@ -141,38 +141,38 @@ public class IndexInfo {
         return this;
     }
 
-    public Double getDocs() {
+    public Long getDocs() {
         return docs;
     }
 
-    public IndexInfo setDocs(Double docs) {
+    public IndexInfo setDocs(Long docs) {
         this.docs = docs;
         return this;
     }
 
-    public Double getMaxDocId() {
+    public Long getMaxDocId() {
         return maxDocId;
     }
 
-    public IndexInfo setMaxDocId(Double maxDocId) {
+    public IndexInfo setMaxDocId(Long maxDocId) {
         this.maxDocId = maxDocId;
         return this;
     }
 
-    public Double getTerms() {
+    public Long getTerms() {
         return terms;
     }
 
-    public IndexInfo setTerms(Double terms) {
+    public IndexInfo setTerms(Long terms) {
         this.terms = terms;
         return this;
     }
 
-    public Double getRecords() {
+    public Long getRecords() {
         return records;
     }
 
-    public IndexInfo setRecords(Double records) {
+    public IndexInfo setRecords(Long records) {
         this.records = records;
         return this;
     }
@@ -240,38 +240,38 @@ public class IndexInfo {
         return this;
     }
 
-    public Double getRecordsPerDocAverage() {
+    public Long getRecordsPerDocAverage() {
         return recordsPerDocAverage;
     }
 
-    public IndexInfo setRecordsPerDocAverage(Double recordsPerDocAverage) {
+    public IndexInfo setRecordsPerDocAverage(Long recordsPerDocAverage) {
         this.recordsPerDocAverage = recordsPerDocAverage;
         return this;
     }
 
-    public Double getBytesPerRecordAverage() {
+    public Long getBytesPerRecordAverage() {
         return bytesPerRecordAverage;
     }
 
-    public IndexInfo setBytesPerRecordAverage(Double bytesPerRecordAverage) {
+    public IndexInfo setBytesPerRecordAverage(Long bytesPerRecordAverage) {
         this.bytesPerRecordAverage = bytesPerRecordAverage;
         return this;
     }
 
-    public Double getOffsetsPerTermAverage() {
+    public Long getOffsetsPerTermAverage() {
         return offsetsPerTermAverage;
     }
 
-    public IndexInfo setOffsetsPerTermAverage(Double offsetsPerTermAverage) {
+    public IndexInfo setOffsetsPerTermAverage(Long offsetsPerTermAverage) {
         this.offsetsPerTermAverage = offsetsPerTermAverage;
         return this;
     }
 
-    public Double getOffsetBitsPerRecordAverage() {
+    public Long getOffsetBitsPerRecordAverage() {
         return offsetBitsPerRecordAverage;
     }
 
-    public IndexInfo setOffsetBitsPerRecordAverage(Double offsetBitsPerRecordAverage) {
+    public IndexInfo setOffsetBitsPerRecordAverage(Long offsetBitsPerRecordAverage) {
         this.offsetBitsPerRecordAverage = offsetBitsPerRecordAverage;
         return this;
     }
@@ -303,11 +303,11 @@ public class IndexInfo {
         return this;
     }
 
-    public Double getPercentIndexed() {
+    public Long getPercentIndexed() {
         return percentIndexed;
     }
 
-    public IndexInfo setPercentIndexed(Double percentIndexed) {
+    public IndexInfo setPercentIndexed(Long percentIndexed) {
         this.percentIndexed = percentIndexed;
         return this;
     }

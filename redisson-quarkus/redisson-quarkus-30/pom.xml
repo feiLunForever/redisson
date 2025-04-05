@@ -4,26 +4,24 @@
     <parent>
         <groupId>org.redisson</groupId>
         <artifactId>redisson-quarkus</artifactId>
-        <version>3.45.2-SNAPSHOT</version>
+        <version>3.22.1-SNAPSHOT</version>
         <relativePath>../</relativePath>
     </parent>
 
     <artifactId>redisson-quarkus-30-parent</artifactId>
     <packaging>pom</packaging>
 
-    <name>Redisson Quarkus v3.x.x integration with Redis</name>
+    <name>Redisson/Quarkus v3.x.x integration</name>
 
-    <modules>
-        <module>cdi</module>
-        <module>cache</module>
-    </modules>
+     <modules>
+       <module>deployment</module>
+       <module>runtime</module>
+       <module>integration-tests</module>
+     </modules>
 
      <properties>
-       <quarkus.version>3.19.3</quarkus.version>
-       <quarkus.plugin.version>3.19.3</quarkus.plugin.version>
-       <maven.compiler.source>11</maven.compiler.source>
-       <maven.compiler.target>11</maven.compiler.target>
-       <maven.compiler.release>11</maven.compiler.release>
+       <quarkus.version>3.1.0.Final</quarkus.version>
+       <quarkus.plugin.version>3.1.0.Final</quarkus.plugin.version>
      </properties>
 
      <dependencyManagement>
@@ -38,4 +36,25 @@
        </dependencies>
      </dependencyManagement>
 
+     <build>
+       <pluginManagement>
+         <plugins>
+           <plugin>
+               <artifactId>maven-compiler-plugin</artifactId>
+               <configuration>
+                   <source>11</source>
+                   <target>11</target>
+                   <release>11</release>
+                   <showDeprecation>true</showDeprecation>
+               </configuration>
+           </plugin>
+
+           <plugin>
+             <groupId>io.quarkus</groupId>
+             <artifactId>quarkus-maven-plugin</artifactId>
+             <version>${quarkus.plugin.version}</version>
+           </plugin>
+         </plugins>
+       </pluginManagement>
+     </build>
 </project>

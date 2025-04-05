@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,10 @@ package org.redisson;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.Timeout;
 import io.netty.util.concurrent.ImmediateEventExecutor;
-import org.redisson.api.*;
+import org.redisson.api.RFuture;
+import org.redisson.api.RRemoteService;
+import org.redisson.api.RTransferQueue;
+import org.redisson.api.RemoteInvocationOptions;
 import org.redisson.api.annotation.RRemoteAsync;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.protocol.RedisCommand;
@@ -36,7 +39,8 @@ import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
-import java.util.function.Function;
+
+
 
 
 /**
@@ -602,26 +606,6 @@ public class RedissonTransferQueue<V> extends RedissonExpirable implements RTran
     }
 
     @Override
-    public Entry<String, V> pollFromAnyWithName(Duration timeout, String... queueNames) throws InterruptedException {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public RFuture<Entry<String, V>> pollFromAnyWithNameAsync(Duration timeout, String... queueNames) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public Entry<String, V> pollLastFromAnyWithName(Duration timeout, String... queueNames) throws InterruptedException {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public RFuture<Entry<String, V>> pollLastFromAnyWithNameAsync(Duration timeout, String... queueNames) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public Map<String, List<V>> pollFirstFromAny(Duration duration, int count, String... queueNames) throws InterruptedException {
         throw new UnsupportedOperationException();
     }
@@ -653,14 +637,7 @@ public class RedissonTransferQueue<V> extends RedissonExpirable implements RTran
 
     @Override
     public int subscribeOnElements(Consumer<V> consumer) {
-        return getServiceManager().getElementsSubscribeService()
-                .subscribeOnElements(this::takeAsync, consumer);
-    }
-
-    @Override
-    public int subscribeOnElements(Function<V, CompletionStage<Void>> consumer) {
-        return getServiceManager().getElementsSubscribeService()
-                .subscribeOnElements(this::takeAsync, consumer);
+        return getServiceManager().getElementsSubscribeService().subscribeOnElements(this::takeAsync, consumer);
     }
 
     @Override

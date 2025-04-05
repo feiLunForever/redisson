@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,10 +17,7 @@ package org.redisson.rx;
 
 import io.reactivex.rxjava3.core.Flowable;
 import org.redisson.api.RFuture;
-import org.redisson.api.options.ObjectParams;
 import org.redisson.command.CommandAsyncExecutor;
-import org.redisson.connection.ConnectionManager;
-import org.redisson.liveobject.core.RedissonObjectBuilder;
 
 import java.util.concurrent.Callable;
 
@@ -32,12 +29,5 @@ import java.util.concurrent.Callable;
 public interface CommandRxExecutor extends CommandAsyncExecutor {
 
     <R> Flowable<R> flowable(Callable<RFuture<R>> supplier);
-
-    @Override
-    CommandRxExecutor copy(ObjectParams objectParams);
-
-    static CommandRxExecutor create(ConnectionManager connectionManager, RedissonObjectBuilder objectBuilder) {
-        return new CommandRxService(connectionManager, objectBuilder);
-    }
 
 }

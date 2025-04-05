@@ -1,17 +1,20 @@
 package org.redisson;
 
-import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Test;
-import org.redisson.api.RQueue;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import java.io.Serializable;
 import java.util.Arrays;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import avro.shaded.com.google.common.base.Objects;
+import org.jboss.marshalling.reflect.SerializableClassRegistry;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+import org.redisson.api.RQueue;
 
-public class RedissonQueueTest extends RedisDockerTest {
+public class RedissonQueueTest extends BaseTest {
 
     <T> RQueue<T> getQueue() {
         return redisson.getQueue("queue");

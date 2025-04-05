@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,10 +33,7 @@ public class EntryEvent<K, V> {
     private K key;
     private V value;
     private V oldValue;
-
-    public EntryEvent() {
-    }
-
+    
     public EntryEvent(RMapCache<K, V> source, Type type, K key, V value, V oldValue) {
         super();
         this.source = source;
@@ -65,14 +62,5 @@ public class EntryEvent<K, V> {
     public V getValue() {
         return value;
     }
-
-    @Override
-    public String toString() {
-        return "EntryEvent{" +
-                "type=" + type +
-                ", key=" + key +
-                ", value=" + value +
-                ", oldValue=" + oldValue +
-                '}';
-    }
+    
 }

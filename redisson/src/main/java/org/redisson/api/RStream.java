@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,6 +45,18 @@ public interface RStream<K, V> extends RStreamAsync<K, V>, RExpirable {
      */
     void createGroup(StreamCreateGroupArgs args);
 
+    /**
+     * Use createGroup(StreamCreateGroupArgs) method instead
+     */
+    @Deprecated
+    void createGroup(String groupName);
+
+    /**
+     * Use createGroup(StreamCreateGroupArgs) method instead
+     */
+    @Deprecated
+    void createGroup(String groupName, StreamMessageId id);
+    
     /**
      * Removes group by name.
      * 
@@ -340,6 +352,124 @@ public interface RStream<K, V> extends RStreamAsync<K, V>, RExpirable {
      */
     Map<StreamMessageId, Map<K, V>> readGroup(String groupName, String consumerName, StreamReadGroupArgs args);
 
+    /*
+     * Use readGroup(String, String, StreamReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> readGroup(String groupName, String consumerName, StreamMessageId... ids);
+
+    /*
+     * Use readGroup(String, String, StreamReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> readGroup(String groupName, String consumerName, int count, StreamMessageId... ids);
+    
+    /*
+     * Use readGroup(String, String, StreamReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> readGroup(String groupName, String consumerName, long timeout, TimeUnit unit, StreamMessageId... ids);
+
+    /*
+     * Use readGroup(String, String, StreamReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> readGroup(String groupName, String consumerName, int count, long timeout, TimeUnit unit, StreamMessageId... ids);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, StreamMessageId id, Map<String, StreamMessageId> nameToId);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, int count, StreamMessageId id, Map<String, StreamMessageId> nameToId);
+    
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, int count, long timeout, TimeUnit unit, StreamMessageId id, Map<String, StreamMessageId> nameToId);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, long timeout, TimeUnit unit, StreamMessageId id, Map<String, StreamMessageId> nameToId);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, StreamMessageId id, String key2, StreamMessageId id2);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, StreamMessageId id, String key2, StreamMessageId id2, String key3,
+            StreamMessageId id3);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, int count, StreamMessageId id, String key2, StreamMessageId id2);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, int count, StreamMessageId id, String key2, StreamMessageId id2, String key3,
+            StreamMessageId id3);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, long timeout, TimeUnit unit, StreamMessageId id, String key2,
+            StreamMessageId id2);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, long timeout, TimeUnit unit, StreamMessageId id, String key2,
+            StreamMessageId id2, String key3, StreamMessageId id3);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, int count, long timeout, TimeUnit unit, StreamMessageId id, String key2,
+            StreamMessageId id2);
+
+    /*
+     * Use readGroup(String, String, StreamMultiReadGroupArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, int count, long timeout, TimeUnit unit, StreamMessageId id, String key2,
+            StreamMessageId id2, String key3, StreamMessageId id3);
+    
     /**
      * Returns number of entries in stream
      * 
@@ -381,6 +511,62 @@ public interface RStream<K, V> extends RStreamAsync<K, V>, RExpirable {
      */
     void add(StreamMessageId id, StreamAddArgs<K, V> args);
 
+    /*
+     * Use add(StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    StreamMessageId add(K key, V value);
+    
+    /*
+     * Use add(StreamMessageId, StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    void add(StreamMessageId id, K key, V value);
+    
+    /*
+     * Use add(StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    StreamMessageId add(K key, V value, int trimLen, boolean trimStrict);
+
+    /*
+     * Use add(StreamMessageId, StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    void add(StreamMessageId id, K key, V value, int trimLen, boolean trimStrict);
+    
+    /*
+     * Use add(StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    StreamMessageId addAll(Map<K, V> entries);
+    
+    /*
+     * Use add(StreamMessageId, StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    void addAll(StreamMessageId id, Map<K, V> entries);
+    
+    /*
+     * Use add(StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    StreamMessageId addAll(Map<K, V> entries, int trimLen, boolean trimStrict);
+    
+    /*
+     * Use add(StreamMessageId, StreamAddArgs) method instead
+     *
+     */
+    @Deprecated
+    void addAll(StreamMessageId id, Map<K, V> entries, int trimLen, boolean trimStrict);
+
     /**
      * Read stream data from multiple streams including current.
      * <p>
@@ -416,6 +602,118 @@ public interface RStream<K, V> extends RStreamAsync<K, V>, RExpirable {
      * @return stream data mapped by Stream Message ID
      */
     Map<StreamMessageId, Map<K, V>> read(StreamReadArgs args);
+
+    /*
+     * Use read(StreamReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> read(StreamMessageId... ids);
+
+    /*
+     * Use read(StreamReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> read(int count, StreamMessageId... ids);
+    
+    /*
+     * Use read(StreamReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> read(long timeout, TimeUnit unit, StreamMessageId... ids);
+
+    /*
+     * Use read(StreamReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<StreamMessageId, Map<K, V>> read(int count, long timeout, TimeUnit unit, StreamMessageId... ids);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(StreamMessageId id, String name2, StreamMessageId id2);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(StreamMessageId id, String name2, StreamMessageId id2, String name3, StreamMessageId id3);
+    
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(StreamMessageId id, Map<String, StreamMessageId> nameToId);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(int count, StreamMessageId id, String name2, StreamMessageId id2);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(int count, StreamMessageId id, String name2, StreamMessageId id2, String name3, StreamMessageId id3);
+    
+    /*
+     * Use read(StreamReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(int count, StreamMessageId id, Map<String, StreamMessageId> nameToId);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(long timeout, TimeUnit unit, StreamMessageId id, String name2, StreamMessageId id2);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(long timeout, TimeUnit unit, StreamMessageId id, String name2, StreamMessageId id2, String name3, StreamMessageId id3);
+    
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(long timeout, TimeUnit unit, StreamMessageId id, Map<String, StreamMessageId> nameToId);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(int count, long timeout, TimeUnit unit, StreamMessageId id, String name2, StreamMessageId id2);
+
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(int count, long timeout, TimeUnit unit, StreamMessageId id, String name2, StreamMessageId id2, String name3, StreamMessageId id3);
+    
+    /*
+     * Use read(StreamMultiReadArgs) method instead
+     *
+     */
+    @Deprecated
+    Map<String, Map<StreamMessageId, Map<K, V>>> read(int count, long timeout, TimeUnit unit, StreamMessageId id, Map<String, StreamMessageId> nameToId);
 
     /**
      * Returns stream data in range by specified start Stream Message ID (included) and end Stream Message ID (included).
@@ -489,6 +787,45 @@ public interface RStream<K, V> extends RStreamAsync<K, V>, RExpirable {
      */
     long trimNonStrict(StreamTrimArgs args);
 
+    /*
+     * Use trim(StreamTrimArgs) method instead
+     *
+     */
+    @Deprecated
+    long trim(int size);
+
+    /*
+     * Use trim(StreamTrimArgs) method instead
+     *
+     */
+    @Deprecated
+    long trim(TrimStrategy strategy, int threshold);
+
+    /*
+     * Use trimNonStrict(StreamTrimArgs) method instead
+     *
+     */
+    @Deprecated
+    long trimNonStrict(int size);
+
+    /*
+     * Use trimNonStrict(StreamTrimArgs) method instead
+     *
+     */
+    @Deprecated
+    long trimNonStrict(TrimStrategy strategy, int threshold);
+
+    /**
+     * Trims stream using almost exact trimming threshold up to limit.
+     *
+     * @param strategy - trim strategy
+     * @param threshold - trim threshold
+     * @param limit - trim limit
+     * @return number of deleted messages
+     */
+    @Deprecated
+    long trimNonStrict(TrimStrategy strategy, int threshold, int limit);
+
     /**
      * Returns information about this stream.
      * 
@@ -510,25 +847,5 @@ public interface RStream<K, V> extends RStreamAsync<K, V>, RExpirable {
      * @return list of info objects
      */
     List<StreamConsumer> listConsumers(String groupName);
-
-    /**
-     * Adds object event listener
-     *
-     * @see org.redisson.api.listener.TrackingListener
-     * @see org.redisson.api.listener.StreamAddListener
-     * @see org.redisson.api.listener.StreamRemoveListener
-     * @see org.redisson.api.listener.StreamCreateGroupListener
-     * @see org.redisson.api.listener.StreamRemoveGroupListener
-     * @see org.redisson.api.listener.StreamCreateConsumerListener
-     * @see org.redisson.api.listener.StreamRemoveConsumerListener
-     * @see org.redisson.api.listener.StreamTrimListener
-     * @see org.redisson.api.ExpiredObjectListener
-     * @see org.redisson.api.DeletedObjectListener
-     *
-     * @param listener - object event listener
-     * @return listener id
-     */
-    int addListener(ObjectListener listener);
-
-
+    
 }

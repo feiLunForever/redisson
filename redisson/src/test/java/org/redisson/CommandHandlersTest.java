@@ -5,10 +5,10 @@ import org.junit.jupiter.api.Test;
 import org.redisson.api.RedissonClient;
 import org.redisson.config.Config;
 
-public class CommandHandlersTest extends RedisDockerTest {
+public class CommandHandlersTest extends BaseTest {
 
     @Test
-    public void testEncoder() {
+    public void testEncoder() throws InterruptedException {
         Assertions.assertThrows(RuntimeException.class, () -> {
             Config config = createConfig();
             config.setCodec(new ErrorsCodec());

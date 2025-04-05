@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -125,25 +125,22 @@ public class RedissonConnectionFactory implements RedisConnectionFactory,
         if (!redisson.getConfig().isSentinelConfig()) {
             throw new InvalidDataAccessResourceUsageException("Redisson is not in Sentinel mode");
         }
-
-        SentinelConnectionManager manager = (SentinelConnectionManager)(((Redisson)redisson).getCommandExecutor().getConnectionManager());
+        
+        SentinelConnectionManager manager = (SentinelConnectionManager)(((Redisson)redisson).getConnectionManager());
         for (RedisClient client : manager.getSentinels()) {
-            org.redisson.client.RedisConnection connection = null;
+            org.redisson.client.RedisConnection connection = client.connect();
             try {
-                connection = client.connect();
                 String res = connection.sync(RedisCommands.PING);
                 if ("pong".equalsIgnoreCase(res)) {
                     return new RedissonSentinelConnection(connection);
                 }
             } catch (Exception e) {
                 log.warn("Can't connect to " + client, e);
-                if (connection != null) {
-                    connection.closeAsync();
-                }
+                connection.closeAsync();
             }
         }
-
-        throw new InvalidDataAccessResourceUsageException("Sentinels are offline");
+        
+        throw new InvalidDataAccessResourceUsageException("Sentinels are not found");
     }
 
     @Override

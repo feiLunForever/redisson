@@ -1,15 +1,16 @@
 package org.redisson.spring.transaction;
 
-import org.redisson.RedisDockerTest;
+import javax.annotation.PreDestroy;
+
+import org.redisson.BaseTest;
 import org.redisson.api.RedissonClient;
-import org.springframework.beans.factory.DisposableBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 
 @Configuration
 @EnableTransactionManagement
-public class RedissonTransactionContextConfig implements DisposableBean {
+public class RedissonTransactionContextConfig {
 
     @Bean
     public TransactionalBean2 transactionBean2() {
@@ -28,9 +29,10 @@ public class RedissonTransactionContextConfig implements DisposableBean {
     
     @Bean
     public RedissonClient redisson() {
-        return RedisDockerTest.createInstance();
+        return BaseTest.createInstance();
     }
     
+    @PreDestroy
     public void destroy() {
         redisson().shutdown();
     }

@@ -2,7 +2,6 @@ package org.redisson;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.redisson.api.*;
@@ -18,7 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class RedissonMapReduceTest extends RedisDockerTest {
+public class RedissonMapReduceTest extends BaseTest {
     
     public static class WordMapper implements RMapper<String, String, String, Integer> {
 
@@ -74,14 +73,14 @@ public class RedissonMapReduceTest extends RedisDockerTest {
     @MethodSource("mapClasses")
     public void testCancel(Class<?> mapClass) throws InterruptedException {
         RMap<String, String> map = getMap(mapClass);
-        for (int i = 0; i < 1000; i++) {
+        for (int i = 0; i < 100000; i++) {
             map.put("" + i, "ab cd fjks");
         }
         
         RMapReduce<String, String, String, Integer> mapReduce = map.<String, Integer>mapReduce().mapper(new WordMapper()).reducer(new WordReducer());
         RFuture<Map<String, Integer>> future = mapReduce.executeAsync();
         Thread.sleep(100);
-        assertThat(future.cancel(true)).isTrue();
+        future.cancel(true);
     }
 
     @ParameterizedTest
@@ -89,7 +88,7 @@ public class RedissonMapReduceTest extends RedisDockerTest {
     public void testTimeout(Class<?> mapClass) {
         Assertions.assertThrows(MapReduceTimeoutException.class, () -> {
             RMap<String, String> map = getMap(mapClass);
-            for (int i = 0; i < 1000; i++) {
+            for (int i = 0; i < 100000; i++) {
                 map.put("" + i, "ab cd fjks");
             }
 
@@ -104,7 +103,6 @@ public class RedissonMapReduceTest extends RedisDockerTest {
     
     @ParameterizedTest
     @MethodSource("mapClasses")
-    @Timeout(5)
     public void test(Class<?> mapClass) {
         RMap<String, String> map = getMap(mapClass);
         

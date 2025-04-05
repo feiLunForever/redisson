@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,8 +31,8 @@ import java.net.URL;
  * @param <T> config type
  */
 public class BaseConfig<T extends BaseConfig<T>> {
-
-    protected static final Logger log = LoggerFactory.getLogger("config");
+    
+    private static final Logger log = LoggerFactory.getLogger("config");
 
     /**
      * If pooled connection not used for a <code>timeout</code> time
@@ -57,8 +57,6 @@ public class BaseConfig<T extends BaseConfig<T>> {
      */
     private int timeout = 3000;
 
-    private int subscriptionTimeout = 7500;
-
     private int retryAttempts = 3;
 
     private int retryInterval = 1500;
@@ -82,10 +80,8 @@ public class BaseConfig<T extends BaseConfig<T>> {
      */
     private String clientName;
 
-    private SslVerificationMode sslVerificationMode = SslVerificationMode.STRICT;
-
-    private String sslKeystoreType;
-
+    private boolean sslEnableEndpointIdentification = true;
+    
     private SslProvider sslProvider = SslProvider.JDK;
     
     private URL sslTruststore;
@@ -107,15 +103,7 @@ public class BaseConfig<T extends BaseConfig<T>> {
     private int pingConnectionInterval = 30000;
 
     private boolean keepAlive;
-
-    private int tcpKeepAliveCount;
-
-    private int tcpKeepAliveIdle;
-
-    private int tcpKeepAliveInterval;
-
-    private int tcpUserTimeout;
-
+    
     private boolean tcpNoDelay = true;
 
     private NameMapper nameMapper = NameMapper.direct();
@@ -135,10 +123,10 @@ public class BaseConfig<T extends BaseConfig<T>> {
         setClientName(config.getClientName());
         setConnectTimeout(config.getConnectTimeout());
         setIdleConnectionTimeout(config.getIdleConnectionTimeout());
+        setSslEnableEndpointIdentification(config.isSslEnableEndpointIdentification());
         setSslProvider(config.getSslProvider());
         setSslTruststore(config.getSslTruststore());
         setSslTruststorePassword(config.getSslTruststorePassword());
-        setSslKeystoreType(config.getSslKeystoreType());
         setSslKeystore(config.getSslKeystore());
         setSslKeystorePassword(config.getSslKeystorePassword());
         setSslProtocols(config.getSslProtocols());
@@ -147,16 +135,10 @@ public class BaseConfig<T extends BaseConfig<T>> {
         setSslTrustManagerFactory(config.getSslTrustManagerFactory());
         setPingConnectionInterval(config.getPingConnectionInterval());
         setKeepAlive(config.isKeepAlive());
-        setTcpKeepAliveCount(config.getTcpKeepAliveCount());
-        setTcpKeepAliveIdle(config.getTcpKeepAliveIdle());
-        setTcpKeepAliveInterval(config.getTcpKeepAliveInterval());
-        setTcpUserTimeout(config.getTcpUserTimeout());
         setTcpNoDelay(config.isTcpNoDelay());
         setNameMapper(config.getNameMapper());
         setCredentialsResolver(config.getCredentialsResolver());
         setCommandMapper(config.getCommandMapper());
-        setSslVerificationMode(config.getSslVerificationMode());
-        setSubscriptionTimeout(config.getSubscriptionTimeout());
     }
 
     /**
@@ -266,23 +248,6 @@ public class BaseConfig<T extends BaseConfig<T>> {
         return timeout;
     }
 
-    public int getSubscriptionTimeout() {
-        return subscriptionTimeout;
-    }
-
-    /**
-     * Defines subscription timeout applied per channel subscription.
-     * <p>
-     * Default is <code>7500</code> milliseconds.
-     *
-     * @param subscriptionTimeout timeout in milliseconds
-     * @return config
-     */
-    public T setSubscriptionTimeout(int subscriptionTimeout) {
-        this.subscriptionTimeout = subscriptionTimeout;
-        return (T) this;
-    }
-
     /**
      * Setup connection name during connection init
      * via CLIENT SETNAME command
@@ -337,25 +302,20 @@ public class BaseConfig<T extends BaseConfig<T>> {
         return idleConnectionTimeout;
     }
 
-    @Deprecated
     public boolean isSslEnableEndpointIdentification() {
-        return this.sslVerificationMode == SslVerificationMode.STRICT;
+        return sslEnableEndpointIdentification;
     }
 
     /**
-     * Use {@link #setSslVerificationMode(SslVerificationMode)} instead.
+     * Enables SSL endpoint identification.
+     * <p>
+     * Default is <code>true</code>
      * 
      * @param sslEnableEndpointIdentification boolean value
      * @return config
      */
-    @Deprecated
     public T setSslEnableEndpointIdentification(boolean sslEnableEndpointIdentification) {
-        log.warn("sslEnableEndpointIdentification setting is deprecated. Use sslVerificationMode setting instead.");
-        if (sslEnableEndpointIdentification) {
-            this.sslVerificationMode = SslVerificationMode.STRICT;
-        } else {
-            this.sslVerificationMode = SslVerificationMode.NONE;
-        }
+        this.sslEnableEndpointIdentification = sslEnableEndpointIdentification;
         return (T) this;
     }
 
@@ -499,70 +459,6 @@ public class BaseConfig<T extends BaseConfig<T>> {
         return (T) this;
     }
 
-    public int getTcpKeepAliveCount() {
-        return tcpKeepAliveCount;
-    }
-
-    /**
-     * Defines the maximum number of keepalive probes
-     * TCP should send before dropping the connection.
-     *
-     * @param tcpKeepAliveCount maximum number of keepalive probes
-     * @return config
-     */
-    public T setTcpKeepAliveCount(int tcpKeepAliveCount) {
-        this.tcpKeepAliveCount = tcpKeepAliveCount;
-        return (T) this;
-    }
-
-    public int getTcpKeepAliveIdle() {
-        return tcpKeepAliveIdle;
-    }
-
-    /**
-     * Defines the time in seconds the connection needs to remain idle
-     * before TCP starts sending keepalive probes,
-     *
-     * @param tcpKeepAliveIdle time in seconds
-     * @return config
-     */
-    public T setTcpKeepAliveIdle(int tcpKeepAliveIdle) {
-        this.tcpKeepAliveIdle = tcpKeepAliveIdle;
-        return (T) this;
-    }
-
-    public int getTcpKeepAliveInterval() {
-        return tcpKeepAliveInterval;
-    }
-
-    /**
-     * Defines the time in seconds between individual keepalive probes.
-     *
-     * @param tcpKeepAliveInterval time in seconds
-     * @return config
-     */
-    public T setTcpKeepAliveInterval(int tcpKeepAliveInterval) {
-        this.tcpKeepAliveInterval = tcpKeepAliveInterval;
-        return (T) this;
-    }
-
-    public int getTcpUserTimeout() {
-        return tcpUserTimeout;
-    }
-
-    /**
-     * Defines the maximum amount of time in milliseconds that transmitted data may
-     * remain unacknowledged, or buffered data may remain untransmitted
-     * (due to zero window size) before TCP will forcibly close the connection.
-     *
-     * @param tcpUserTimeout time in milliseconds
-     * @return config
-     */
-    public T setTcpUserTimeout(int tcpUserTimeout) {
-        this.tcpUserTimeout = tcpUserTimeout;
-        return (T) this;
-    }
-
     public boolean isTcpNoDelay() {
         return tcpNoDelay;
     }
@@ -613,23 +509,6 @@ public class BaseConfig<T extends BaseConfig<T>> {
         return (T) this;
     }
 
-    public String getSslKeystoreType() {
-        return sslKeystoreType;
-    }
-
-    /**
-     * Defines SSL keystore type.
-     * <p>
-     * Default is <code>null</code>
-     *
-     * @param sslKeystoreType keystore type
-     * @return config
-     */
-    public T setSslKeystoreType(String sslKeystoreType) {
-        this.sslKeystoreType = sslKeystoreType;
-        return (T) this;
-    }
-
     public String[] getSslCiphers() {
         return sslCiphers;
     }
@@ -642,9 +521,9 @@ public class BaseConfig<T extends BaseConfig<T>> {
      * @param sslCiphers ciphers
      * @return config
      */
-    public T setSslCiphers(String[] sslCiphers) {
+    public BaseConfig<T> setSslCiphers(String[] sslCiphers) {
         this.sslCiphers = sslCiphers;
-        return (T) this;
+        return this;
     }
 
     public TrustManagerFactory getSslTrustManagerFactory() {
@@ -659,9 +538,9 @@ public class BaseConfig<T extends BaseConfig<T>> {
      * @param trustManagerFactory trust manager value
      * @return config
      */
-    public T setSslTrustManagerFactory(TrustManagerFactory trustManagerFactory) {
+    public BaseConfig<T> setSslTrustManagerFactory(TrustManagerFactory trustManagerFactory) {
         this.sslTrustManagerFactory = trustManagerFactory;
-        return (T) this;
+        return this;
     }
 
     public KeyManagerFactory getSslKeyManagerFactory() {
@@ -692,27 +571,8 @@ public class BaseConfig<T extends BaseConfig<T>> {
      * @param commandMapper Redis command name mapper object
      * @return config
      */
-    public T setCommandMapper(CommandMapper commandMapper) {
+    public BaseConfig<T> setCommandMapper(CommandMapper commandMapper) {
         this.commandMapper = commandMapper;
-        return (T) this;
+        return this;
     }
-
-    public SslVerificationMode getSslVerificationMode() {
-        return sslVerificationMode;
-    }
-
-    /**
-     * Defines SSL verification mode, which prevents man-in-the-middle attacks.
-     *
-     * <p>
-     * Default is <code>SslVerificationMode.STRICT</code>
-     *
-     * @param sslVerificationMode
-     * @return
-     */
-    public T setSslVerificationMode(SslVerificationMode sslVerificationMode) {
-        this.sslVerificationMode = sslVerificationMode;
-        return (T) this;
-    }
-
 }

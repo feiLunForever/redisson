@@ -1,5 +1,5 @@
 /**
- * Copyright (c) 2013-2024 Nikita Koksharov
+ * Copyright (c) 2013-2022 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,17 +16,16 @@
 package org.redisson.rx;
 
 import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.functions.Action;
+import io.reactivex.rxjava3.functions.LongConsumer;
 import io.reactivex.rxjava3.processors.ReplayProcessor;
 import org.redisson.api.RFuture;
-import org.redisson.api.options.ObjectParams;
-import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.command.CommandAsyncService;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.liveobject.core.RedissonObjectBuilder;
 
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  *
@@ -35,62 +34,46 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class CommandRxService extends CommandAsyncService implements CommandRxExecutor {
 
-    CommandRxService(CommandAsyncExecutor executor, boolean trackChanges) {
-        super(executor, trackChanges);
-    }
-
-    CommandRxService(ConnectionManager connectionManager, RedissonObjectBuilder objectBuilder) {
+    public CommandRxService(ConnectionManager connectionManager, RedissonObjectBuilder objectBuilder) {
         super(connectionManager, objectBuilder, RedissonObjectBuilder.ReferenceType.RXJAVA);
-    }
-
-    CommandRxService(CommandAsyncExecutor executor, ObjectParams objectParams) {
-        super(executor, objectParams);
-    }
-
-    @Override
-    public CommandRxExecutor copy(boolean trackChanges) {
-        return new CommandRxService(this, trackChanges);
-    }
-
-    @Override
-    public CommandRxExecutor copy(ObjectParams objectParams) {
-        return new CommandRxService(this, objectParams);
     }
 
     @Override
     public <R> Flowable<R> flowable(Callable<RFuture<R>> supplier) {
         ReplayProcessor<R> p = ReplayProcessor.create();
-        AtomicReference<RFuture<R>> futureRef = new AtomicReference<>();
-        return p.doOnRequest(t -> {
-                    RFuture<R> future;
-                    try {
-                        future = supplier.call();
-                        futureRef.set(future);
-                    } catch (Exception e) {
-                        p.onError(e);
-                        return;
-                    }
-
-                    future.whenComplete((res, e) -> {
-                       if (e != null) {
-                           if (e instanceof CompletionException) {
-                               e = e.getCause();
-                           }
-                           p.onError(e);
-                           return;
-                       }
-
-                       if (res != null) {
-                           p.onNext(res);
-                       }
-                       p.onComplete();
-                    });
-                }).doOnCancel(() -> {
-                    RFuture<R> future = futureRef.get();
-                    if (future != null) {
+        return p.doOnRequest(new LongConsumer() {
+            @Override
+            public void accept(long t) throws Exception {
+                RFuture<R> future;
+                try {
+                    future = supplier.call();
+                } catch (Exception e) {
+                    p.onError(e);
+                    return;
+                }
+                p.doOnCancel(new Action() {
+                    @Override
+                    public void run() throws Exception {
                         future.cancel(true);
                     }
                 });
+                
+                future.whenComplete((res, e) -> {
+                   if (e != null) {
+                       if (e instanceof CompletionException) {
+                           e = e.getCause();
+                       }
+                       p.onError(e);
+                       return;
+                   }
+                   
+                   if (res != null) {
+                       p.onNext(res);
+                   }
+                   p.onComplete();
+                });
+            }
+        });
     }
 
 }
