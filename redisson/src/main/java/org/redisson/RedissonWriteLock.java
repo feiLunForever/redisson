@@ -51,29 +51,29 @@ public class RedissonWriteLock extends RedissonLock implements RLock {
     protected String getLockName(long threadId) {
         return super.getLockName(threadId) + ":write";
     }
-    
+
     @Override
     <T> RFuture<T> tryLockInnerAsync(long waitTime, long leaseTime, TimeUnit unit, long threadId, RedisStrictCommand<T> command) {
         return commandExecutor.syncedEval(getRawName(), LongCodec.INSTANCE, command,
-                            //获取锁里面的mode
+                            // 获取锁里面的mode
                             "local mode = redis.call('hget', KEYS[1], 'mode'); " +
-                            //如果mode不存在，说明第一次加写锁
+                            // 如果mode不存在，说明第一次加写锁
                             "if (mode == false) then " +
-                                    //设置写锁模式=write
+                                    // 设置写锁模式=write
                                   "redis.call('hset', KEYS[1], 'mode', 'write'); " +
-                                    //设置锁持有线程
+                                    // 设置锁持有线程
                                   "redis.call('hset', KEYS[1], ARGV[2], 1); " +
-                                    //加过期时间
+                                    // 加过期时间
                                   "redis.call('pexpire', KEYS[1], ARGV[1]); " +
                                   "return nil; " +
                               "end; " +
-                               //如果mode当前是写锁，那说明之前是加的写锁
+                               // 如果mode当前是写锁，那说明之前是加的写锁
                               "if (mode == 'write') then " +
-                                    //判断当前持有锁的线程是不是本线程
+                                    // 判断当前持有锁的线程是不是本线程
                                   "if (redis.call('hexists', KEYS[1], ARGV[2]) == 1) then " +
-                                    //锁可重入次数+1
+                                    // 锁可重入次数+1
                                       "redis.call('hincrby', KEYS[1], ARGV[2], 1); " +
-                                    //重新设置锁过期时间
+                                    // 重新设置锁过期时间
                                       "local currentExpire = redis.call('pttl', KEYS[1]); " +
                                       "redis.call('pexpire', KEYS[1], currentExpire + ARGV[1]); " +
                                       "return nil; " +
@@ -92,37 +92,37 @@ public class RedissonWriteLock extends RedissonLock implements RLock {
     @Override
     protected RFuture<Boolean> unlockInnerAsync(long threadId) {
         return evalWriteAsync(getRawName(), LongCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
-                //获取锁mode，锁模式
+                // 获取锁mode，锁模式
                 "local mode = redis.call('hget', KEYS[1], 'mode'); " +
                 "if (mode == false) then " +
-                        //不存在锁，那么pub
+                    // 不存在锁，那么往读写锁对应的channel发送释放锁的消息
                     "redis.call(ARGV[4], KEYS[2], ARGV[1]); " +
                     "return 1; " +
                 "end;" +
-                        //如果是写锁
+                 // 如果是写锁
                 "if (mode == 'write') then " +
-                        //是否持有锁线程是本线程，不是，返回null
+                    // 是否持有锁线程是本线程，不是，返回null
                     "local lockExists = redis.call('hexists', KEYS[1], ARGV[3]); " +
+                    // 如果不存在直接返回null，表示释放锁失败
                     "if (lockExists == 0) then " +
                         "return nil;" +
                     "else " +
-                        //是本线程，做可重入次数--
+                        // 是本线程，做可重入次数--
                         "local counter = redis.call('hincrby', KEYS[1], ARGV[3], -1); " +
                         "if (counter > 0) then " +
-                            //如果减之后还有可重入次数，那么就延长锁过期时间
+                            // 如果减之后还有可重入次数，那么就重新刷新锁过期时间
                             "redis.call('pexpire', KEYS[1], ARGV[2]); " +
                             "return 0; " +
                         "else " +
-                            //否则不再持有锁，删除锁里面的线程持有
+                            // 否则不再持有锁，删除锁里面的线程持有
                             "redis.call('hdel', KEYS[1], ARGV[3]); " +
                             //如果hset的长度=1了，那么也就是里面只有mode了，那么就删除key
                             "if (redis.call('hlen', KEYS[1]) == 1) then " +
                                 "redis.call('del', KEYS[1]); " +
                                 "redis.call(ARGV[4], KEYS[2], ARGV[1]); " +
                             "else " +
-                                // has unlocked read-locks
-                                //如果还有别的线程在，就把线程模式改成读锁。这里会存在么？
-                                // 会的，加写锁加的key = serverId + threadId +:write
+                                // 如果 key 数量大于1，证明当前线程还持有读锁(锁的降级)，利用 hset 命令将锁模式设置为读锁
+                                // 加写锁加的key = serverId + threadId +:write
                                 // 加了写锁，同一线程加读锁，key = serverId + threadId，可以区分出来是读锁还是写锁
                                 "redis.call('hset', KEYS[1], 'mode', 'read'); " +
                             "end; " +
@@ -136,7 +136,7 @@ public class RedissonWriteLock extends RedissonLock implements RLock {
         //ARGV[1]=0 ARGV[2]=锁过期时间 ARGV[3]=serverId + threadId +:write, ARGV[4]=pub命令
         LockPubSub.READ_UNLOCK_MESSAGE, internalLockLeaseTime, getLockName(threadId), getSubscribeService().getPublishCommand());
     }
-    
+
     @Override
     public Condition newCondition() {
         throw new UnsupportedOperationException();
